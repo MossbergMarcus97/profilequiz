@@ -12,22 +12,9 @@ const cardThemes = [
 ];
 
 export default async function Home() {
+  // Simple query to avoid complex joins
   const tests = await prisma.test.findMany({
     orderBy: { createdAt: "desc" },
-    include: {
-      _count: {
-        select: { attempts: true },
-      },
-      versions: {
-        orderBy: { version: "desc" },
-        take: 1,
-        include: {
-          _count: {
-            select: { profiles: true },
-          },
-        },
-      },
-    },
   });
 
   const featuredTest = tests[0];
@@ -109,9 +96,9 @@ export default async function Home() {
                     {featuredTest.description}
                   </p>
                   <div className="flex items-center gap-4 text-sm text-white/70">
-                    <span>{featuredTest.versions[0]?._count?.profiles || 16} archetypes</span>
+                    <span>16 archetypes</span>
                     <span>•</span>
-                    <span>{featuredTest._count.attempts.toLocaleString()} people took this</span>
+                    <span>Psychology-backed</span>
                   </div>
                 </div>
                 
@@ -156,10 +143,10 @@ export default async function Home() {
                   </p>
                   
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>{test.versions[0]?._count?.profiles || "?"} archetypes</span>
+                    <span>Unique archetypes</span>
                     <span className="flex items-center gap-1">
                       <span className={`w-2 h-2 ${theme.accent} rounded-full`} />
-                      {test._count.attempts.toLocaleString()} taken
+                      Psychology-backed
                     </span>
                   </div>
                 </Link>
