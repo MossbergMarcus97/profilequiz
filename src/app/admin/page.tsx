@@ -1,36 +1,9 @@
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { AdminLoginForm } from "@/components/admin/AdminLoginForm";
 
-async function loginAction(formData: FormData) {
-  "use server";
-  const pass = formData.get("password") as string;
-  const correctPass = process.env.ADMIN_PASSWORD;
-  
-  console.log("Login attempt - password length:", pass?.length);
-  console.log("Expected password length:", correctPass?.length);
-  console.log("Password match:", pass === correctPass);
-  
-  if (pass && correctPass && pass.trim() === correctPass.trim()) {
-    cookies().set("admin_pass", pass.trim(), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
-    redirect("/admin");
-  }
-  
-  // If we get here, login failed - redirect with error
-  redirect("/admin?error=invalid");
-}
-
-export default async function AdminPage({
-  searchParams,
-}: {
-  searchParams: { error?: string };
-}) {
+export default async function AdminPage() {
   const adminCookie = cookies().get("admin_pass")?.value;
   const correctPass = process.env.ADMIN_PASSWORD;
 
@@ -38,20 +11,7 @@ export default async function AdminPage({
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
         <h1 className="text-2xl font-bold">Admin Login</h1>
-        {searchParams.error === "invalid" && (
-          <p className="text-red-500 text-sm">Invalid password. Please try again.</p>
-        )}
-        <form action={loginAction} className="flex flex-col space-y-2">
-          <input
-            type="password"
-            name="password"
-            placeholder="Password"
-            className="border p-2 rounded"
-          />
-          <button type="submit" className="bg-primary text-primary-foreground p-2 rounded">
-            Login
-          </button>
-        </form>
+        <AdminLoginForm />
       </div>
     );
   }
@@ -96,4 +56,3 @@ export default async function AdminPage({
     </div>
   );
 }
-
