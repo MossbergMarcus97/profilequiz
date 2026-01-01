@@ -6,7 +6,7 @@ import { TestBlueprintSchema } from "@/lib/schemas/blueprint";
 
 /**
  * Generate pre-made reports for all profiles in a test version.
- * Uses GPT-5.2 Pro with extra-high reasoning for premium quality.
+ * Generates high-quality premium reports.
  * 
  * This is an expensive operation - typically done once per test version.
  */
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     
     const results: Array<{ profileId: string; profileName: string; success: boolean; error?: string }> = [];
     
-    // Generate reports one at a time (GPT-5.2 Pro can take several minutes)
+    // Generate reports one at a time
     for (const profile of profilesToGenerate) {
       try {
         console.log(`Generating report for profile: ${profile.name} (${profile.id})`);

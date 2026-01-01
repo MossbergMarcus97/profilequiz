@@ -4,9 +4,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// GPT-5.2 with xhigh (extra-high) reasoning effort
-const MODEL = "gpt-5.2";
-const REASONING_EFFORT = "xhigh";
+// Use gpt-4o for fast generation (blueprint creation)
+// Use gpt-4o for reports as well - much faster than GPT-5.2
+const MODEL = "gpt-4o";
+const REPORT_MODEL = "gpt-4o";
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
 
@@ -141,8 +142,6 @@ The JSON schema to follow:
       { role: "system", content: BLUEPRINT_SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    // @ts-ignore - reasoning_effort is a GPT-5.2 parameter
-    reasoning_effort: REASONING_EFFORT,
     response_format: { type: "json_object" },
   });
 
@@ -181,13 +180,11 @@ Make it personal, insightful, and actionable. Reference their specific score pat
 Total length: approximately 1500-2000 words across all sections.`;
 
   const response = await openai.chat.completions.create({
-    model: MODEL,
+    model: REPORT_MODEL,
     messages: [
       { role: "system", content: REPORT_SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
-    // @ts-ignore
-    reasoning_effort: REASONING_EFFORT,
   });
 
   return response.choices[0].message.content || "";
@@ -315,7 +312,7 @@ A personalized affirmation or guiding principle that captures their essence.
 Output clean HTML only. Start with the first h2 section.`;
 
   const response = await openai.chat.completions.create({
-    model: MODEL,
+    model: REPORT_MODEL,
     messages: [
       { 
         role: "system", 
@@ -323,8 +320,6 @@ Output clean HTML only. Start with the first h2 section.`;
       },
       { role: "user", content: comprehensivePrompt },
     ],
-    // @ts-ignore
-    reasoning_effort: REASONING_EFFORT,
     max_tokens: 8000,
   });
 
@@ -433,12 +428,11 @@ export async function generateImagesForBlueprint(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Profile Report Generation (GPT-5.2 Pro for pre-made archetype reports)
+// Profile Report Generation (pre-made archetype reports)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Use GPT-5.2 Pro with extra-high reasoning for premium report generation
-const PRO_MODEL = "gpt-5.2-pro";
-const PRO_REASONING_EFFORT = "xhigh";
+// Use gpt-4o for premium report generation (fast and high quality)
+const PRO_MODEL = "gpt-4o";
 
 interface ProfileReportInput {
   testTitle: string;
@@ -451,7 +445,7 @@ interface ProfileReportInput {
 
 /**
  * Generate a premium, pre-made report for a personality archetype.
- * Uses GPT-5.2 Pro with extra-high reasoning for maximum quality.
+ * Uses gpt-4o for fast, high-quality generation.
  * 
  * This is called ONCE per profile, and the result is stored in the database.
  * All users with this profile will see this pre-made report.
@@ -563,8 +557,6 @@ Output clean HTML only (h2, h3, p, ul, li, blockquote, strong, em). Start with t
       },
       { role: "user", content: prompt },
     ],
-    // @ts-ignore - reasoning_effort for GPT-5.2 Pro
-    reasoning_effort: PRO_REASONING_EFFORT,
     max_tokens: 12000,
   });
 

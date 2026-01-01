@@ -99,7 +99,7 @@ export default function NewTestPage() {
 
   const handleGenerate = async () => {
     setLoading(true);
-    setProgress("🧠 Initializing GPT-5.2 with extra-high reasoning...");
+    setProgress("🧠 Initializing quiz generator...");
     
     try {
       setProgress("✨ Generating your personalized quiz blueprint...");
@@ -216,7 +216,7 @@ export default function NewTestPage() {
         <div>
           <h1 className="text-3xl font-serif font-bold">Create New Quiz</h1>
           <p className="text-muted-foreground mt-1">
-            Powered by GPT-5.2 with extra-high reasoning
+            Intelligent quiz generation
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -408,7 +408,7 @@ export default function NewTestPage() {
           <div className="w-16 h-16 border-4 border-teal-200 border-t-teal-700 rounded-full animate-spin" />
           <div className="text-xl font-bold text-center">{progress}</div>
           <p className="text-muted-foreground text-center max-w-md">
-            GPT-5.2 is analyzing your requirements and crafting a scientifically-grounded assessment with validated question formats...
+            Analyzing your requirements and crafting a scientifically-grounded assessment with validated question formats...
           </p>
         </div>
       )}
