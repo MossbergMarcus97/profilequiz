@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 48 100% 97%; /* #FFFBEB soft cream */
+    --foreground: 20 14% 10%; /* #1C1917 charcoal */
+
+    --card: 48 100% 97%;
+    --card-foreground: 20 14% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14% 10%;
+
+    --primary: 174 77% 26%; /* #0F766E deep teal */
+    --primary-foreground: 48 100% 97%;
+
+    --secondary: 25 95% 53%; /* #F97316 warm coral */
+    --secondary-foreground: 48 100% 97%;
+
+    --muted: 48 20% 90%;
+    --muted-foreground: 20 14% 40%;
+
+    --accent: 25 95% 53%;
+    --accent-foreground: 48 100% 97%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 60 9.1% 97.8%;
+
+    --border: 20 14% 90%;
+    --input: 20 14% 90%;
+    --ring: 174 77% 26%;
+
+    --radius: 1rem; /* 16px */
+  }
+
+  .dark {
+    --background: 20 14% 10%;
+    --foreground: 48 100% 97%;
+
+    --card: 20 14% 10%;
+    --card-foreground: 48 100% 97%;
+
+    --popover: 20 14% 10%;
+    --popover-foreground: 48 100% 97%;
+
+    --primary: 174 77% 40%;
+    --primary-foreground: 20 14% 10%;
+
+    --secondary: 25 95% 53%;
+    --secondary-foreground: 20 14% 10%;
+
+    --muted: 20 14% 20%;
+    --muted-foreground: 20 14% 70%;
+
+    --accent: 25 95% 53%;
+    --accent-foreground: 20 14% 10%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 48 100% 97%;
+
+    --border: 20 14% 20%;
+    --input: 20 14% 20%;
+    --ring: 174 77% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+/* Custom styles for quiz runner */
+.quiz-option-selected {
+  @apply border-primary ring-2 ring-primary ring-offset-2;
+}
+
+.report-content h1, .report-content h2, .report-content h3 {
+  @apply font-serif;
+}

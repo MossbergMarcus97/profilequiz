@@ -1,0 +1,120 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // For migrations (bypasses connection pooler)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test + Versioning (freeze blueprint for a cohort of attempts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Test {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  title         String
+  description   String
+  blueprintJson String        // JSON stringified TestBlueprint (includes profiles array)
+  themeJson     String?       // Optional UI theme overrides
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  versions      TestVersion[]
+  attempts      Attempt[]     // Legacy: attempts may reference Test directly
+}
+
+model TestVersion {
+  id             String          @id @default(cuid())
+  testId         String
+  test           Test            @relation(fields: [testId], references: [id], onDelete: Cascade)
+  version        Int             @default(1)
+  blueprintJson  String          // Frozen blueprint for this version
+  createdAt      DateTime        @default(now())
+  profiles       Profile[]
+  attempts       Attempt[]
+
+  @@unique([testId, version])
+  @@index([testId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Profile + Pre-made Reports (archetype-first engine)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Profile {
+  id              String          @id @default(cuid())
+  testVersionId   String
+  testVersion     TestVersion     @relation(fields: [testVersionId], references: [id], onDelete: Cascade)
+  slug            String          // e.g. "the-architect", "the-explorer"
+  name            String          // Display name
+  oneLineHook     String          // Tagline shown on results page
+  teaserBullets   String[]        // Array of teaser points for paywall
+  shareTitle      String?         // Optional custom share title
+  prototypeJson   String          // JSON: { C: 80, E: 20, A: 50, N: 30, O: 90 } for nearest-neighbor matching
+  sortOrder       Int             @default(0)
+  createdAt       DateTime        @default(now())
+  reports         ProfileReport[]
+  attempts        Attempt[]
+
+  @@unique([testVersionId, slug])
+  @@index([testVersionId])
+}
+
+model ProfileReport {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  variant     Int      @default(0) // 0 = primary, 1-2 = alternate phrasings
+  contentHtml String   // Full pre-generated report HTML
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([profileId, variant])
+  @@index([profileId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attempt (no answer storage, only derived results)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Attempt {
+  id            String       @id @default(cuid())
+  testId        String
+  test          Test         @relation(fields: [testId], references: [id])
+  testVersionId String?
+  testVersion   TestVersion? @relation(fields: [testVersionId], references: [id])
+  profileId     String?      // Assigned archetype profile
+  profile       Profile?     @relation(fields: [profileId], references: [id])
+  createdAt     DateTime     @default(now())
+  finishedAt    DateTime?
+  scoresJson    String?      // JSON: { C: 72, E: 45, ... } normalized 0-100
+  resultLabel   String?      // Derived from profile.name or legacy top-2 method
+  status        String       @default("in_progress") // in_progress, finished
+  purchases     Purchase[]
+
+  @@index([testId])
+  @@index([testVersionId])
+  @@index([profileId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payment
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Purchase {
+  id              String   @id @default(cuid())
+  attemptId       String
+  attempt         Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  stripeSessionId String   @unique
+  status          String   @default("pending") // pending, paid, expired
+  amountCents     Int?     // Store amount for analytics
+  createdAt       DateTime @default(now())
+  paidAt          DateTime?
+
+  @@index([attemptId])
+}
