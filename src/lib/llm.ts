@@ -43,49 +43,34 @@ async function streamResponseText(
     let fullText = "";
     const eventTypes: string[] = [];
     
-    // Collect all streamed chunks
+    // Collect all streamed chunks - use type-safe approach
     for await (const event of stream) {
       eventTypes.push(event.type);
       
-      // Handle different event types based on OpenAI Responses API
+      // Handle text delta events
       if (event.type === "response.output_text.delta") {
-        // @ts-ignore - delta exists on this event type
-        fullText += event.delta || "";
-      } else if (event.type === "response.content_part.delta") {
-        // Alternative delta format
-        // @ts-ignore
-        if (event.delta?.text) {
-          // @ts-ignore
-          fullText += event.delta.text;
+        const deltaEvent = event as any;
+        fullText += deltaEvent.delta || "";
+      }
+      // Handle completed response
+      else if (event.type === "response.completed") {
+        const completedEvent = event as any;
+        if (!fullText && completedEvent.response?.output) {
+          fullText = extractResponseText(completedEvent.response);
         }
-      } else if (event.type === "response.output_item.done") {
-        // Item completed - check for text content
-        // @ts-ignore
-        if (event.item?.content) {
-          // @ts-ignore
-          for (const content of event.item.content) {
-            if (content.type === "output_text" && content.text) {
-              fullText += content.text;
-            }
-          }
-        }
-      } else if (event.type === "response.completed" || event.type === "response.done") {
-        // Final response - extract text if we didn't get it from deltas
-        // @ts-ignore
-        if (!fullText && event.response?.output) {
-          // @ts-ignore
-          fullText = extractResponseText(event.response);
-        }
-      } else if (event.type === "error") {
-        // @ts-ignore
-        throw new Error(`Stream error: ${event.error?.message || JSON.stringify(event)}`);
+      }
+      // Handle errors
+      else if (event.type === "error") {
+        const errorEvent = event as any;
+        throw new Error(`Stream error: ${errorEvent.error?.message || JSON.stringify(event)}`);
       }
     }
 
-    console.log("Stream event types received:", [...new Set(eventTypes)].join(", "));
+    const uniqueTypes = Array.from(new Set(eventTypes)).join(", ");
+    console.log("Stream event types received:", uniqueTypes);
 
     if (!fullText) {
-      throw new Error(`No text content received from stream. Event types: ${[...new Set(eventTypes)].join(", ")}`);
+      throw new Error(`No text content received from stream. Event types: ${uniqueTypes}`);
     }
 
     return fullText;
