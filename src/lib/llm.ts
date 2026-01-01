@@ -4,9 +4,27 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// GPT-5.2 Pro - latest model (uses completions endpoint)
+// GPT-5.2 Pro - latest model (uses Responses API)
 const MODEL = "gpt-5.2-pro";
 const REPORT_MODEL = "gpt-5.2-pro";
+
+// Helper to extract text from Responses API output
+function extractResponseText(response: any): string {
+  if (!response.output || response.output.length === 0) {
+    throw new Error("No output from model");
+  }
+  // Find the output_text item
+  for (const item of response.output) {
+    if (item.type === "message" && item.content) {
+      for (const content of item.content) {
+        if (content.type === "output_text") {
+          return content.text;
+        }
+      }
+    }
+  }
+  throw new Error("No text content in response");
+}
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
 
@@ -135,14 +153,14 @@ The JSON schema to follow:
   }
 }`;
 
-  // GPT-5.2 Pro uses completions endpoint
-  const response = await openai.completions.create({
+  // GPT-5.2 Pro uses Responses API with reasoning
+  const response = await openai.responses.create({
     model: MODEL,
-    prompt: `${BLUEPRINT_SYSTEM_PROMPT}\n\nUser: ${userPrompt}\n\nAssistant:`,
-    max_tokens: 8000,
+    input: `${BLUEPRINT_SYSTEM_PROMPT}\n\nUser: ${userPrompt}`,
+    reasoning: { effort: "high" },
   });
 
-  const content = response.choices[0].text;
+  const content = extractResponseText(response);
   if (!content) throw new Error("No content returned from OpenAI");
 
   // Extract JSON from response
@@ -180,13 +198,13 @@ ${sectionsPrompt}
 Make it personal, insightful, and actionable. Reference their specific score patterns.
 Total length: approximately 1500-2000 words across all sections.`;
 
-  const response = await openai.completions.create({
+  const response = await openai.responses.create({
     model: REPORT_MODEL,
-    prompt: REPORT_SYSTEM_PROMPT + "\n\n" + userPrompt,
-    max_tokens: 4000,
+    input: REPORT_SYSTEM_PROMPT + "\n\n" + userPrompt,
+    reasoning: { effort: "high" },
   });
 
-  return response.choices[0].text || "";
+  return extractResponseText(response);
 }
 
 // Legacy function for backwards compatibility
@@ -310,13 +328,13 @@ A personalized affirmation or guiding principle that captures their essence.
 
 Output clean HTML only. Start with the first h2 section.`;
 
-  const response = await openai.completions.create({
+  const response = await openai.responses.create({
     model: REPORT_MODEL,
-    prompt: "You are writing a premium personality report. Be thorough, insightful, and make every word count. This report should feel like a valuable investment for the reader.\n\n" + comprehensivePrompt,
-    max_tokens: 8000,
+    input: "You are writing a premium personality report. Be thorough, insightful, and make every word count. This report should feel like a valuable investment for the reader.\n\n" + comprehensivePrompt,
+    reasoning: { effort: "high" },
   });
 
-  const reportContent = response.choices[0].text || "";
+  const reportContent = extractResponseText(response);
   
   // Wrap in a styled container
   return `<div class="personality-report">
@@ -541,13 +559,13 @@ An affirmation or guiding principle that captures the essence of this archetype.
 
 Output clean HTML only (h2, h3, p, ul, li, blockquote, strong, em). Start with the first h2 section.`;
 
-  const response = await openai.completions.create({
+  const response = await openai.responses.create({
     model: PRO_MODEL,
-    prompt: `You are writing a premium personality archetype report. This report will be seen by many people who match this archetype, so make it resonate universally while feeling personal. Quality is paramount - this is a paid product.\n\n` + prompt,
-    max_tokens: 12000,
+    input: `You are writing a premium personality archetype report. This report will be seen by many people who match this archetype, so make it resonate universally while feeling personal. Quality is paramount - this is a paid product.\n\n` + prompt,
+    reasoning: { effort: "high" },
   });
 
-  const reportContent = response.choices[0].text || "";
+  const reportContent = extractResponseText(response);
   
   // Wrap in styled container with header
   return `<div class="personality-report">
