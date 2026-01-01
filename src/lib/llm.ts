@@ -4,10 +4,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// GPT-5.2 Pro with extra-high reasoning for maximum quality
+// GPT-5.2 Pro with high reasoning (fast enough for 60s timeout)
 const MODEL = "gpt-5.2-pro";
 const REPORT_MODEL = "gpt-5.2-pro";
-const REASONING_EFFORT = "xhigh";
+const REASONING_EFFORT = "high";
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
 
@@ -437,9 +437,9 @@ export async function generateImagesForBlueprint(
 // Profile Report Generation (GPT-5.2 Pro for pre-made archetype reports)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Use GPT-5.2 Pro with extra-high reasoning for premium report generation
+// Use GPT-5.2 Pro with high reasoning for premium report generation
 const PRO_MODEL = "gpt-5.2-pro";
-const PRO_REASONING_EFFORT = "xhigh";
+const PRO_REASONING_EFFORT = "high";
 
 interface ProfileReportInput {
   testTitle: string;
