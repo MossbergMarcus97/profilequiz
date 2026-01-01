@@ -12,19 +12,9 @@ const cardThemes = [
 ];
 
 export default async function Home() {
-  // Simple query to avoid complex joins
-  let tests: any[] = [];
-  let dbError: string | null = null;
-  try {
-    tests = await prisma.test.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-  } catch (error: any) {
-    console.error("Database error:", error);
-    dbError = error?.message || "Unknown database error";
-    // Return empty array on error, show empty state
-    tests = [];
-  }
+  const tests = await prisma.test.findMany({
+    orderBy: { createdAt: "desc" },
+  });
 
   const featuredTest = tests[0];
   const otherTests = tests.slice(1);
@@ -172,11 +162,6 @@ export default async function Home() {
             <div className="text-6xl">🧠</div>
             <h2 className="text-2xl font-bold text-slate-800">No quizzes available yet</h2>
             <p className="text-slate-600">Check back soon for personality discovery quizzes!</p>
-            {dbError && (
-              <p className="text-red-500 text-sm bg-red-50 p-4 rounded-lg max-w-lg mx-auto">
-                DB Error: {dbError}
-              </p>
-            )}
             <Link href="/admin" className="inline-block text-teal-700 font-bold hover:underline">
               Admin Dashboard →
             </Link>
