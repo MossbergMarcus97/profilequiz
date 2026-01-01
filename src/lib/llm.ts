@@ -41,7 +41,7 @@ async function streamResponseText(
     });
 
     let fullText = "";
-    let eventTypes: string[] = [];
+    const eventTypes: string[] = [];
     
     // Collect all streamed chunks
     for await (const event of stream) {
