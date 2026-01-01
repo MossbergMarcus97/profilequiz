@@ -1,0 +1,14 @@
+{
+  "functions": {
+    "src/app/api/admin/generate-blueprint/route.ts": {
+      "maxDuration": 900
+    },
+    "src/app/api/admin/generate-reports/route.ts": {
+      "maxDuration": 900
+    },
+    "src/app/api/admin/generate-images/route.ts": {
+      "maxDuration": 900
+    }
+  }
+}
+
