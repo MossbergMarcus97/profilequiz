@@ -4,10 +4,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Use gpt-4o for fast generation (blueprint creation)
-// Use gpt-4o for reports as well - much faster than GPT-5.2
-const MODEL = "gpt-4o";
-const REPORT_MODEL = "gpt-4o";
+// GPT-5.2 Pro for high-quality generation
+// Using "high" reasoning (not "xhigh") to fit within Vercel's 300s timeout
+const MODEL = "gpt-5.2-pro";
+const REPORT_MODEL = "gpt-5.2-pro";
+const REASONING_EFFORT = "high";
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
 
@@ -142,6 +143,8 @@ The JSON schema to follow:
       { role: "system", content: BLUEPRINT_SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
+    // @ts-ignore - reasoning_effort is a GPT-5.2 parameter
+    reasoning_effort: REASONING_EFFORT,
     response_format: { type: "json_object" },
   });
 
@@ -185,6 +188,8 @@ Total length: approximately 1500-2000 words across all sections.`;
       { role: "system", content: REPORT_SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
     ],
+    // @ts-ignore
+    reasoning_effort: REASONING_EFFORT,
   });
 
   return response.choices[0].message.content || "";
@@ -320,6 +325,8 @@ Output clean HTML only. Start with the first h2 section.`;
       },
       { role: "user", content: comprehensivePrompt },
     ],
+    // @ts-ignore
+    reasoning_effort: REASONING_EFFORT,
     max_tokens: 8000,
   });
 
@@ -428,11 +435,12 @@ export async function generateImagesForBlueprint(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Profile Report Generation (pre-made archetype reports)
+// Profile Report Generation (GPT-5.2 Pro for pre-made archetype reports)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Use gpt-4o for premium report generation (fast and high quality)
-const PRO_MODEL = "gpt-4o";
+// Use GPT-5.2 Pro with high reasoning for premium report generation
+const PRO_MODEL = "gpt-5.2-pro";
+const PRO_REASONING_EFFORT = "high";
 
 interface ProfileReportInput {
   testTitle: string;
@@ -445,7 +453,7 @@ interface ProfileReportInput {
 
 /**
  * Generate a premium, pre-made report for a personality archetype.
- * Uses gpt-4o for fast, high-quality generation.
+ * Uses GPT-5.2 Pro with high reasoning for maximum quality.
  * 
  * This is called ONCE per profile, and the result is stored in the database.
  * All users with this profile will see this pre-made report.
@@ -557,6 +565,8 @@ Output clean HTML only (h2, h3, p, ul, li, blockquote, strong, em). Start with t
       },
       { role: "user", content: prompt },
     ],
+    // @ts-ignore - reasoning_effort for GPT-5.2 Pro
+    reasoning_effort: PRO_REASONING_EFFORT,
     max_tokens: 12000,
   });
 
