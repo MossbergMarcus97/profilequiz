@@ -32,33 +32,67 @@ async function streamResponseText(
   model: string = MODEL,
   effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" = "high"
 ): Promise<string> {
-  const stream = await openai.responses.create({
-    model,
-    input,
-    reasoning: { effort },
-    stream: true,
-  });
+  try {
+    const stream = await openai.responses.create({
+      model,
+      input,
+      reasoning: { effort },
+      stream: true,
+    });
 
-  let fullText = "";
-  
-  // Collect all streamed chunks
-  for await (const event of stream) {
-    // Handle different event types
-    if (event.type === "response.output_text.delta") {
-      fullText += event.delta || "";
-    } else if (event.type === "response.completed") {
-      // Final response - extract text if we didn't get it from deltas
-      if (!fullText && event.response?.output) {
-        fullText = extractResponseText(event.response);
+    let fullText = "";
+    let eventTypes: string[] = [];
+    
+    // Collect all streamed chunks
+    for await (const event of stream) {
+      eventTypes.push(event.type);
+      
+      // Handle different event types based on OpenAI Responses API
+      if (event.type === "response.output_text.delta") {
+        // @ts-ignore - delta exists on this event type
+        fullText += event.delta || "";
+      } else if (event.type === "response.content_part.delta") {
+        // Alternative delta format
+        // @ts-ignore
+        if (event.delta?.text) {
+          // @ts-ignore
+          fullText += event.delta.text;
+        }
+      } else if (event.type === "response.output_item.done") {
+        // Item completed - check for text content
+        // @ts-ignore
+        if (event.item?.content) {
+          // @ts-ignore
+          for (const content of event.item.content) {
+            if (content.type === "output_text" && content.text) {
+              fullText += content.text;
+            }
+          }
+        }
+      } else if (event.type === "response.completed" || event.type === "response.done") {
+        // Final response - extract text if we didn't get it from deltas
+        // @ts-ignore
+        if (!fullText && event.response?.output) {
+          // @ts-ignore
+          fullText = extractResponseText(event.response);
+        }
+      } else if (event.type === "error") {
+        // @ts-ignore
+        throw new Error(`Stream error: ${event.error?.message || JSON.stringify(event)}`);
       }
     }
-  }
 
-  if (!fullText) {
-    throw new Error("No text content received from stream");
-  }
+    console.log("Stream event types received:", [...new Set(eventTypes)].join(", "));
 
-  return fullText;
+    if (!fullText) {
+      throw new Error(`No text content received from stream. Event types: ${[...new Set(eventTypes)].join(", ")}`);
+    }
+
+    return fullText;
+  } catch (error: any) {
+    console.error("Stream error:", error);
+    throw new Error(`Streaming failed: ${error.message}`);
+  }
 }
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
