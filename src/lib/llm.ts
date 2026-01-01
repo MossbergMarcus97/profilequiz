@@ -4,9 +4,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// GPT-4o - OpenAI's latest and most capable model
-const MODEL = "gpt-4o";
-const REPORT_MODEL = "gpt-4o";
+// GPT-5.2 Pro - latest model (uses completions endpoint)
+const MODEL = "gpt-5.2-pro";
+const REPORT_MODEL = "gpt-5.2-pro";
+const REASONING_EFFORT = "high";
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
 
@@ -135,19 +136,23 @@ The JSON schema to follow:
   }
 }`;
 
-  const response = await openai.chat.completions.create({
+  // GPT-5.2 Pro uses completions endpoint, not chat
+  const response = await openai.completions.create({
     model: MODEL,
-    messages: [
-      { role: "system", content: BLUEPRINT_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    response_format: { type: "json_object" },
+    prompt: `${BLUEPRINT_SYSTEM_PROMPT}\n\nUser: ${userPrompt}\n\nAssistant:`,
+    max_tokens: 8000,
+    // @ts-ignore - reasoning_effort for GPT-5.2
+    reasoning_effort: REASONING_EFFORT,
   });
 
-  const content = response.choices[0].message.content;
+  const content = response.choices[0].text;
   if (!content) throw new Error("No content returned from OpenAI");
 
-  return JSON.parse(content);
+  // Extract JSON from response
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("No valid JSON found in response");
+  
+  return JSON.parse(jsonMatch[0]);
 }
 
 export async function generateHTML(
@@ -178,15 +183,15 @@ ${sectionsPrompt}
 Make it personal, insightful, and actionable. Reference their specific score patterns.
 Total length: approximately 1500-2000 words across all sections.`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.completions.create({
     model: REPORT_MODEL,
-    messages: [
-      { role: "system", content: REPORT_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
+    prompt: REPORT_SYSTEM_PROMPT + "\n\n" + userPrompt,
+    max_tokens: 4000,
+    // @ts-ignore
+    reasoning_effort: REASONING_EFFORT,
   });
 
-  return response.choices[0].message.content || "";
+  return response.choices[0].text || "";
 }
 
 // Legacy function for backwards compatibility
@@ -310,19 +315,15 @@ A personalized affirmation or guiding principle that captures their essence.
 
 Output clean HTML only. Start with the first h2 section.`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.completions.create({
     model: REPORT_MODEL,
-    messages: [
-      { 
-        role: "system", 
-        content: "You are writing a premium personality report. Be thorough, insightful, and make every word count. This report should feel like a valuable investment for the reader." 
-      },
-      { role: "user", content: comprehensivePrompt },
-    ],
+    prompt: "You are writing a premium personality report. Be thorough, insightful, and make every word count. This report should feel like a valuable investment for the reader.\n\n" + comprehensivePrompt,
     max_tokens: 8000,
+    // @ts-ignore
+    reasoning_effort: REASONING_EFFORT,
   });
 
-  const reportContent = response.choices[0].message.content || "";
+  const reportContent = response.choices[0].text || "";
   
   // Wrap in a styled container
   return `<div class="personality-report">
@@ -430,8 +431,9 @@ export async function generateImagesForBlueprint(
 // Profile Report Generation (GPT-5.2 Pro for pre-made archetype reports)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Use GPT-4o for premium report generation
-const PRO_MODEL = "gpt-4o";
+// Use GPT-5.2 Pro for premium report generation
+const PRO_MODEL = "gpt-5.2-pro";
+const PRO_REASONING_EFFORT = "high";
 
 interface ProfileReportInput {
   testTitle: string;
@@ -444,7 +446,7 @@ interface ProfileReportInput {
 
 /**
  * Generate a premium, pre-made report for a personality archetype.
- * Uses GPT-4o for high quality generation.
+ * Uses GPT-5.2 Pro for maximum quality generation.
  * 
  * This is called ONCE per profile, and the result is stored in the database.
  * All users with this profile will see this pre-made report.
@@ -547,19 +549,15 @@ An affirmation or guiding principle that captures the essence of this archetype.
 
 Output clean HTML only (h2, h3, p, ul, li, blockquote, strong, em). Start with the first h2 section.`;
 
-  const response = await openai.chat.completions.create({
+  const response = await openai.completions.create({
     model: PRO_MODEL,
-    messages: [
-      { 
-        role: "system", 
-        content: `You are writing a premium personality archetype report. This report will be seen by many people who match this archetype, so make it resonate universally while feeling personal. Quality is paramount - this is a paid product.` 
-      },
-      { role: "user", content: prompt },
-    ],
+    prompt: `You are writing a premium personality archetype report. This report will be seen by many people who match this archetype, so make it resonate universally while feeling personal. Quality is paramount - this is a paid product.\n\n` + prompt,
     max_tokens: 12000,
+    // @ts-ignore
+    reasoning_effort: PRO_REASONING_EFFORT,
   });
 
-  const reportContent = response.choices[0].message.content || "";
+  const reportContent = response.choices[0].text || "";
   
   // Wrap in styled container with header
   return `<div class="personality-report">
