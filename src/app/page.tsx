@@ -13,9 +13,16 @@ const cardThemes = [
 
 export default async function Home() {
   // Simple query to avoid complex joins
-  const tests = await prisma.test.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  let tests: any[] = [];
+  try {
+    tests = await prisma.test.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+  } catch (error) {
+    console.error("Database error:", error);
+    // Return empty array on error, show empty state
+    tests = [];
+  }
 
   const featuredTest = tests[0];
   const otherTests = tests.slice(1);
