@@ -1,27 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface ShareButtonsProps {
   url: string;
-  title: string;
   profileName: string;
 }
 
-export default function ShareButtons({ url, title, profileName }: ShareButtonsProps) {
+export default function ShareButtons({ url, profileName }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
+  const [canNativeShare, setCanNativeShare] = useState(false);
 
   const shareText = `I just discovered I'm ${profileName}! Take the quiz to find your archetype:`;
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(shareText);
+
+  useEffect(() => {
+    setCanNativeShare(typeof navigator !== "undefined" && !!navigator.share);
+  }, []);
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(`${shareText} ${url}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.error("Failed to copy:", e);
+    } catch (err) {
+      console.error("Failed to copy:", err);
     }
   };
 
@@ -33,7 +37,7 @@ export default function ShareButtons({ url, title, profileName }: ShareButtonsPr
           text: shareText,
           url,
         });
-      } catch (e) {
+      } catch {
         // User cancelled or error
       }
     }
@@ -47,7 +51,7 @@ export default function ShareButtons({ url, title, profileName }: ShareButtonsPr
       
       <div className="flex flex-wrap justify-center gap-3">
         {/* Native Share (mobile) */}
-        {typeof navigator !== "undefined" && navigator.share && (
+        {canNativeShare && (
           <button
             onClick={handleNativeShare}
             className="flex items-center gap-2 px-4 py-2 bg-teal-700 text-white rounded-xl font-bold hover:bg-teal-800 transition-colors"

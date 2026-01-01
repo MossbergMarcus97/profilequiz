@@ -78,7 +78,6 @@ export default async function ResultsPage({ params }: { params: { attemptId: str
       {/* Share Buttons */}
       <ShareButtons
         url={`${process.env.NEXT_PUBLIC_BASE_URL || "https://profilequiz.app"}/r/${attempt.id}`}
-        title={`I'm ${profileName}!`}
         profileName={profileName}
       />
 

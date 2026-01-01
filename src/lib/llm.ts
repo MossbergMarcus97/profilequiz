@@ -372,6 +372,10 @@ export async function generateImage(prompt: string): Promise<string> {
   });
 
   // GPT Image returns base64 data, we need to handle the URL properly
+  if (!response.data || response.data.length === 0) {
+    throw new Error("No image data returned from OpenAI");
+  }
+  
   const imageData = response.data[0];
   
   // If it returns a URL directly, use that
@@ -384,7 +388,7 @@ export async function generateImage(prompt: string): Promise<string> {
     return `data:image/png;base64,${imageData.b64_json}`;
   }
   
-  throw new Error("No image data returned from OpenAI");
+  throw new Error("No valid image format returned from OpenAI");
 }
 
 // Generate images for all questions with imagePrompt

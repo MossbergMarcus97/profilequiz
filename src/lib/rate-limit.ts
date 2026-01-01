@@ -91,11 +91,11 @@ export function rateLimit(
  */
 function cleanupRateLimitMap(): void {
   const now = Date.now();
-  for (const [key, value] of rateLimitMap.entries()) {
+  Array.from(rateLimitMap.entries()).forEach(([key, value]) => {
     if (now > value.resetTime) {
       rateLimitMap.delete(key);
     }
-  }
+  });
 }
 
 // Clean up every 5 minutes (only in non-edge runtime)
