@@ -7,7 +7,6 @@ const openai = new OpenAI({
 // GPT-5.2 Pro - latest model (uses completions endpoint)
 const MODEL = "gpt-5.2-pro";
 const REPORT_MODEL = "gpt-5.2-pro";
-const REASONING_EFFORT = "high";
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
 
@@ -136,13 +135,11 @@ The JSON schema to follow:
   }
 }`;
 
-  // GPT-5.2 Pro uses completions endpoint, not chat
+  // GPT-5.2 Pro uses completions endpoint
   const response = await openai.completions.create({
     model: MODEL,
     prompt: `${BLUEPRINT_SYSTEM_PROMPT}\n\nUser: ${userPrompt}\n\nAssistant:`,
     max_tokens: 8000,
-    // @ts-ignore - reasoning_effort for GPT-5.2
-    reasoning_effort: REASONING_EFFORT,
   });
 
   const content = response.choices[0].text;
@@ -187,8 +184,6 @@ Total length: approximately 1500-2000 words across all sections.`;
     model: REPORT_MODEL,
     prompt: REPORT_SYSTEM_PROMPT + "\n\n" + userPrompt,
     max_tokens: 4000,
-    // @ts-ignore
-    reasoning_effort: REASONING_EFFORT,
   });
 
   return response.choices[0].text || "";
@@ -319,8 +314,6 @@ Output clean HTML only. Start with the first h2 section.`;
     model: REPORT_MODEL,
     prompt: "You are writing a premium personality report. Be thorough, insightful, and make every word count. This report should feel like a valuable investment for the reader.\n\n" + comprehensivePrompt,
     max_tokens: 8000,
-    // @ts-ignore
-    reasoning_effort: REASONING_EFFORT,
   });
 
   const reportContent = response.choices[0].text || "";
@@ -433,7 +426,6 @@ export async function generateImagesForBlueprint(
 
 // Use GPT-5.2 Pro for premium report generation
 const PRO_MODEL = "gpt-5.2-pro";
-const PRO_REASONING_EFFORT = "high";
 
 interface ProfileReportInput {
   testTitle: string;
@@ -553,8 +545,6 @@ Output clean HTML only (h2, h3, p, ul, li, blockquote, strong, em). Start with t
     model: PRO_MODEL,
     prompt: `You are writing a premium personality archetype report. This report will be seen by many people who match this archetype, so make it resonate universally while feeling personal. Quality is paramount - this is a paid product.\n\n` + prompt,
     max_tokens: 12000,
-    // @ts-ignore
-    reasoning_effort: PRO_REASONING_EFFORT,
   });
 
   const reportContent = response.choices[0].text || "";
