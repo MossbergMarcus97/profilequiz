@@ -4,11 +4,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// GPT-5.2 Pro - latest model (uses Responses API)
+// GPT-5.2 Pro - latest model (uses Responses API with streaming)
 const MODEL = "gpt-5.2-pro";
 const REPORT_MODEL = "gpt-5.2-pro";
 
-// Helper to extract text from Responses API output
+// Helper to extract text from Responses API output (non-streaming)
 function extractResponseText(response: any): string {
   if (!response.output || response.output.length === 0) {
     throw new Error("No output from model");
@@ -24,6 +24,41 @@ function extractResponseText(response: any): string {
     }
   }
   throw new Error("No text content in response");
+}
+
+// Helper to stream response and collect full text (bypasses Vercel timeout)
+async function streamResponseText(
+  input: string,
+  model: string = MODEL,
+  effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" = "high"
+): Promise<string> {
+  const stream = await openai.responses.create({
+    model,
+    input,
+    reasoning: { effort },
+    stream: true,
+  });
+
+  let fullText = "";
+  
+  // Collect all streamed chunks
+  for await (const event of stream) {
+    // Handle different event types
+    if (event.type === "response.output_text.delta") {
+      fullText += event.delta || "";
+    } else if (event.type === "response.completed") {
+      // Final response - extract text if we didn't get it from deltas
+      if (!fullText && event.response?.output) {
+        fullText = extractResponseText(event.response);
+      }
+    }
+  }
+
+  if (!fullText) {
+    throw new Error("No text content received from stream");
+  }
+
+  return fullText;
 }
 
 const BLUEPRINT_SYSTEM_PROMPT = `You are an expert psychometrician and personality test designer. Your role is to create scientifically-grounded, engaging personality assessments.
@@ -153,14 +188,13 @@ The JSON schema to follow:
   }
 }`;
 
-  // GPT-5.2 Pro uses Responses API with reasoning
-  const response = await openai.responses.create({
-    model: MODEL,
-    input: `${BLUEPRINT_SYSTEM_PROMPT}\n\nUser: ${userPrompt}`,
-    reasoning: { effort: "high" },
-  });
+  // GPT-5.2 Pro with streaming to bypass Vercel timeout
+  const content = await streamResponseText(
+    `${BLUEPRINT_SYSTEM_PROMPT}\n\nUser: ${userPrompt}`,
+    MODEL,
+    "high"
+  );
 
-  const content = extractResponseText(response);
   if (!content) throw new Error("No content returned from OpenAI");
 
   // Extract JSON from response
@@ -198,13 +232,12 @@ ${sectionsPrompt}
 Make it personal, insightful, and actionable. Reference their specific score patterns.
 Total length: approximately 1500-2000 words across all sections.`;
 
-  const response = await openai.responses.create({
-    model: REPORT_MODEL,
-    input: REPORT_SYSTEM_PROMPT + "\n\n" + userPrompt,
-    reasoning: { effort: "high" },
-  });
-
-  return extractResponseText(response);
+  // Stream to bypass Vercel timeout
+  return streamResponseText(
+    REPORT_SYSTEM_PROMPT + "\n\n" + userPrompt,
+    REPORT_MODEL,
+    "high"
+  );
 }
 
 // Legacy function for backwards compatibility
@@ -328,13 +361,12 @@ A personalized affirmation or guiding principle that captures their essence.
 
 Output clean HTML only. Start with the first h2 section.`;
 
-  const response = await openai.responses.create({
-    model: REPORT_MODEL,
-    input: "You are writing a premium personality report. Be thorough, insightful, and make every word count. This report should feel like a valuable investment for the reader.\n\n" + comprehensivePrompt,
-    reasoning: { effort: "high" },
-  });
-
-  const reportContent = extractResponseText(response);
+  // Stream to bypass Vercel timeout
+  const reportContent = await streamResponseText(
+    "You are writing a premium personality report. Be thorough, insightful, and make every word count. This report should feel like a valuable investment for the reader.\n\n" + comprehensivePrompt,
+    REPORT_MODEL,
+    "high"
+  );
   
   // Wrap in a styled container
   return `<div class="personality-report">
@@ -559,13 +591,12 @@ An affirmation or guiding principle that captures the essence of this archetype.
 
 Output clean HTML only (h2, h3, p, ul, li, blockquote, strong, em). Start with the first h2 section.`;
 
-  const response = await openai.responses.create({
-    model: PRO_MODEL,
-    input: `You are writing a premium personality archetype report. This report will be seen by many people who match this archetype, so make it resonate universally while feeling personal. Quality is paramount - this is a paid product.\n\n` + prompt,
-    reasoning: { effort: "high" },
-  });
-
-  const reportContent = extractResponseText(response);
+  // Stream to bypass Vercel timeout
+  const reportContent = await streamResponseText(
+    `You are writing a premium personality archetype report. This report will be seen by many people who match this archetype, so make it resonate universally while feeling personal. Quality is paramount - this is a paid product.\n\n` + prompt,
+    PRO_MODEL,
+    "high"
+  );
   
   // Wrap in styled container with header
   return `<div class="personality-report">
