@@ -4,7 +4,7 @@ import { verifyAdminAuth } from "@/lib/admin-auth";
 import { translateBlueprint, TranslatedBlueprint } from "@/lib/gemini";
 import { Locale, locales } from "@/i18n/config";
 
-export const maxDuration = 120; // Allow up to 2 minutes for translation
+export const maxDuration = 60; // Vercel Pro allows up to 60s
 
 interface TranslationsMap {
   [locale: string]: TranslatedBlueprint;
@@ -52,6 +52,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Only translate ONE locale per request to avoid timeout
+    const locale = localesToTranslate[0];
+
     // Fetch the test
     const test = await prisma.test.findUnique({
       where: { id: testId },
@@ -66,54 +69,34 @@ export async function POST(req: NextRequest) {
       ? JSON.parse(test.translationsJson)
       : {};
 
-    // Translate to each target locale
-    const results: { locale: Locale; success: boolean; error?: string }[] = [];
+    // Translate to the single locale
+    try {
+      console.log(`Translating blueprint to ${locale}...`);
+      const translated = await translateBlueprint(blueprint, locale, { tone });
+      existingTranslations[locale] = translated;
 
-    for (const locale of localesToTranslate) {
-      try {
-        console.log(`Translating blueprint to ${locale}...`);
-        const translated = await translateBlueprint(blueprint, locale, { tone });
-        existingTranslations[locale] = translated;
-        results.push({ locale, success: true });
-      } catch (error: any) {
-        console.error(`Translation to ${locale} failed:`, error);
-        results.push({ locale, success: false, error: error.message });
-      }
-    }
-
-    // Update the test with new translations
-    await prisma.test.update({
-      where: { id: testId },
-      data: {
-        translationsJson: JSON.stringify(existingTranslations),
-        updatedAt: new Date(),
-      },
-    });
-
-    const successCount = results.filter((r) => r.success).length;
-    const failedCount = results.filter((r) => !r.success).length;
-
-    // If all translations failed, return an error
-    if (successCount === 0 && failedCount > 0) {
-      const errorMessages = results
-        .filter((r) => !r.success)
-        .map((r) => `${r.locale}: ${r.error}`)
-        .join("; ");
-      return NextResponse.json(
-        { 
-          error: `All translations failed: ${errorMessages}`,
-          results 
+      // Update the test with new translation
+      await prisma.test.update({
+        where: { id: testId },
+        data: {
+          translationsJson: JSON.stringify(existingTranslations),
+          updatedAt: new Date(),
         },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Translated to ${locale}`,
+        translatedLocales: Object.keys(existingTranslations),
+        remainingLocales: localesToTranslate.slice(1),
+      });
+    } catch (error: any) {
+      console.error(`Translation to ${locale} failed:`, error);
+      return NextResponse.json(
+        { error: `Translation to ${locale} failed: ${error.message}` },
         { status: 500 }
       );
     }
-
-    return NextResponse.json({
-      success: true,
-      message: `Translated to ${successCount} locale(s)${failedCount > 0 ? `, ${failedCount} failed` : ""}`,
-      results,
-      translatedLocales: Object.keys(existingTranslations),
-    });
   } catch (error: any) {
     console.error("Translation error:", error);
     return NextResponse.json(

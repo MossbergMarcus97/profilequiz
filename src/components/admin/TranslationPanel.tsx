@@ -90,37 +90,47 @@ export default function TranslationPanel({
 
     setTranslating(true);
     setError("");
-    setProgress(`Translating quiz to ${selectedLocales.length} language(s)...`);
+    
+    const localesToProcess = [...selectedLocales];
+    let completed = 0;
+    
+    for (const locale of localesToProcess) {
+      setProgress(`Translating to ${localeNames[locale]} (${completed + 1}/${localesToProcess.length})...`);
+      
+      try {
+        const res = await fetch("/api/admin/translate-blueprint", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            testId,
+            targetLocales: [locale], // One at a time
+          }),
+        });
 
-    try {
-      const res = await fetch("/api/admin/translate-blueprint", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          testId,
-          targetLocales: selectedLocales,
-        }),
-      });
+        const data = await res.json();
 
-      const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || `Translation to ${locale} failed`);
+        }
 
-      if (!res.ok) {
-        throw new Error(data.error || "Translation failed");
+        completed++;
+        // Update status after each successful translation
+        fetchStatus();
+      } catch (e: any) {
+        setError(`${localeNames[locale]}: ${e.message}`);
+        setTranslating(false);
+        setProgress("");
+        return; // Stop on first error
       }
-
-      setProgress(data.message);
-      setSelectedLocales([]);
-      fetchStatus();
-      onTranslationComplete?.();
-
-      // Clear progress after a delay
-      setTimeout(() => setProgress(""), 3000);
-    } catch (e: any) {
-      setError(e.message);
-      setProgress("");
-    } finally {
-      setTranslating(false);
     }
+
+    setProgress(`✓ Translated to ${completed} language(s)`);
+    setSelectedLocales([]);
+    onTranslationComplete?.();
+    setTranslating(false);
+
+    // Clear progress after a delay
+    setTimeout(() => setProgress(""), 3000);
   };
 
   const handleTranslateReports = async () => {
