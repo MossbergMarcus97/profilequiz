@@ -93,6 +93,21 @@ export async function POST(req: NextRequest) {
     const successCount = results.filter((r) => r.success).length;
     const failedCount = results.filter((r) => !r.success).length;
 
+    // If all translations failed, return an error
+    if (successCount === 0 && failedCount > 0) {
+      const errorMessages = results
+        .filter((r) => !r.success)
+        .map((r) => `${r.locale}: ${r.error}`)
+        .join("; ");
+      return NextResponse.json(
+        { 
+          error: `All translations failed: ${errorMessages}`,
+          results 
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       message: `Translated to ${successCount} locale(s)${failedCount > 0 ? `, ${failedCount} failed` : ""}`,
