@@ -8,8 +8,8 @@ if (!API_KEY) {
 }
 const genAI = new GoogleGenerativeAI(API_KEY || "");
 
-// Gemini 2.5 Flash - latest stable model (June 2025), 1M token context
-const MODEL = "gemini-2.5-flash";
+// Gemini 3 Flash Preview - latest model
+const MODEL = "gemini-3-flash-preview";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types for Translation
