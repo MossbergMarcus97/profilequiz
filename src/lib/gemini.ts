@@ -4,8 +4,8 @@ import { Locale, localeNames } from "@/i18n/config";
 // Initialize Gemini client
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || "");
 
-// Gemini 3 Flash - latest model optimized for speed and quality
-const MODEL = "gemini-3-flash";
+// Gemini 2.0 Flash - latest model optimized for speed and quality
+const MODEL = "gemini-2.0-flash";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types for Translation
