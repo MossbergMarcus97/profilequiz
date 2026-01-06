@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Locale, locales, localeNames, localeFlags } from "@/i18n/config";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface TranslationStatus {
   [locale: string]: boolean;
@@ -10,12 +11,17 @@ interface TranslationStatus {
 interface TranslationPanelProps {
   testId: string;
   testVersionId?: string;
+  blueprintJson?: string; // Pass the blueprint for client-side translation
   onTranslationComplete?: () => void;
 }
+
+// Initialize Gemini client-side (admin only feature)
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
 
 export default function TranslationPanel({
   testId,
   testVersionId,
+  blueprintJson,
   onTranslationComplete,
 }: TranslationPanelProps) {
   const [status, setStatus] = useState<TranslationStatus>({});
@@ -85,71 +91,119 @@ export default function TranslationPanel({
     setSelectedLocales(missing);
   };
 
+  // Client-side translation using Gemini directly
+  const translateBlueprintClientSide = async (
+    blueprint: any,
+    targetLocale: Locale
+  ) => {
+    if (!GEMINI_API_KEY) {
+      throw new Error("NEXT_PUBLIC_GEMINI_API_KEY not configured");
+    }
+
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-3-flash-preview",
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 32768,
+      },
+    });
+
+    const targetLanguage = localeNames[targetLocale];
+
+    // Extract translatable content
+    const translatableContent = {
+      title: blueprint.title,
+      intro: blueprint.intro,
+      scales: blueprint.scales.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        lowLabel: s.lowLabel,
+        highLabel: s.highLabel,
+      })),
+      questions: blueprint.questions.map((q: any) => ({
+        id: q.id,
+        text: q.text,
+        ...(q.leftLabel && { leftLabel: q.leftLabel }),
+        ...(q.rightLabel && { rightLabel: q.rightLabel }),
+        ...(q.optionA && { optionA: q.optionA }),
+        ...(q.optionB && { optionB: q.optionB }),
+        ...(q.options && { options: q.options }),
+      })),
+      profiles: blueprint.profiles?.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        oneLineHook: p.oneLineHook,
+        teaserBullets: p.teaserBullets,
+        shareTitle: p.shareTitle,
+      })),
+      paywall: blueprint.paywall,
+      resultLabeling: blueprint.resultLabeling,
+    };
+
+    const prompt = `You are an expert translator. Translate this quiz content from English to ${targetLanguage}.
+
+RULES:
+- Make it feel native to ${targetLanguage} speakers
+- Keep all IDs unchanged
+- Don't translate price labels (keep "$3" as "$3")
+- Return ONLY valid JSON, no markdown
+
+Content to translate:
+${JSON.stringify(translatableContent, null, 2)}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    // Extract JSON
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("No valid JSON in response");
+    }
+
+    return JSON.parse(jsonMatch[0]);
+  };
+
   const handleTranslateQuiz = async () => {
     if (selectedLocales.length === 0) return;
+    if (!blueprintJson) {
+      setError("Blueprint not available");
+      return;
+    }
 
     setTranslating(true);
     setError("");
-    
+
+    const blueprint = JSON.parse(blueprintJson);
     const localesToProcess = [...selectedLocales];
     let completed = 0;
-    
+
     for (const locale of localesToProcess) {
-      setProgress(`Translating to ${localeNames[locale]} (${completed + 1}/${localesToProcess.length})...`);
-      
+      setProgress(
+        `Translating to ${localeNames[locale]} (${completed + 1}/${localesToProcess.length})...`
+      );
+
       try {
+        // Translate client-side
+        const translated = await translateBlueprintClientSide(blueprint, locale);
+
+        // Save to server
         const res = await fetch("/api/admin/translate-blueprint", {
-          method: "POST",
+          method: "PUT", // Use PUT to save translation
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             testId,
-            targetLocales: [locale],
+            locale,
+            translation: translated,
           }),
         });
 
         const contentType = res.headers.get("content-type") || "";
-        
-        // If it's JSON (error response), handle it
         if (contentType.includes("application/json")) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || `Translation to ${locale} failed`);
-        }
-
-        // Handle streaming response (SSE)
-        const reader = res.body?.getReader();
-        if (!reader) throw new Error("No response body");
-        
-        const decoder = new TextDecoder();
-        let done = false;
-        let success = false;
-        
-        while (!done) {
-          const { value, done: readerDone } = await reader.read();
-          done = readerDone;
-          
-          if (value) {
-            const text = decoder.decode(value);
-            const lines = text.split("\n");
-            
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data.status === "done" && data.success) {
-                    success = true;
-                  } else if (data.status === "error") {
-                    throw new Error(data.error);
-                  }
-                } catch (parseError) {
-                  // Ignore parse errors for incomplete chunks
-                }
-              }
-            }
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || "Failed to save translation");
           }
-        }
-        
-        if (!success) {
-          throw new Error(`Translation to ${locale} did not complete`);
         }
 
         completed++;
@@ -277,6 +331,12 @@ export default function TranslationPanel({
 
       {activeTab === "quiz" && (
         <>
+          {!GEMINI_API_KEY && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl">
+              <strong>Setup Required:</strong> Add NEXT_PUBLIC_GEMINI_API_KEY to your environment variables to enable translations.
+            </div>
+          )}
+
           {/* Language Status Grid */}
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
             {/* English (source) */}
@@ -336,7 +396,7 @@ export default function TranslationPanel({
 
             <button
               onClick={handleTranslateQuiz}
-              disabled={translating || selectedLocales.length === 0}
+              disabled={translating || selectedLocales.length === 0 || !GEMINI_API_KEY}
               className="ml-auto bg-teal-700 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-teal-800 transition-colors flex items-center gap-2"
             >
               {translating && (
@@ -464,4 +524,3 @@ export default function TranslationPanel({
     </div>
   );
 }
-

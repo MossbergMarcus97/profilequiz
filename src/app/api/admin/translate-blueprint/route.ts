@@ -169,6 +169,63 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// PUT endpoint to save a client-side translation
+export async function PUT(req: NextRequest) {
+  const authError = verifyAdminAuth();
+  if (authError) return authError;
+
+  try {
+    const body = await req.json();
+    const { testId, locale, translation } = body as {
+      testId: string;
+      locale: Locale;
+      translation: any;
+    };
+
+    if (!testId || !locale || !translation) {
+      return NextResponse.json(
+        { error: "testId, locale, and translation are required" },
+        { status: 400 }
+      );
+    }
+
+    const test = await prisma.test.findUnique({
+      where: { id: testId },
+      select: { translationsJson: true },
+    });
+
+    if (!test) {
+      return NextResponse.json({ error: "Test not found" }, { status: 404 });
+    }
+
+    const existingTranslations: TranslationsMap = test.translationsJson
+      ? JSON.parse(test.translationsJson)
+      : {};
+
+    existingTranslations[locale] = translation;
+
+    await prisma.test.update({
+      where: { id: testId },
+      data: {
+        translationsJson: JSON.stringify(existingTranslations),
+        updatedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `Saved translation for ${locale}`,
+      translatedLocales: Object.keys(existingTranslations),
+    });
+  } catch (error: any) {
+    console.error("Error saving translation:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to save translation" },
+      { status: 500 }
+    );
+  }
+}
+
 // DELETE endpoint to remove a translation
 export async function DELETE(req: NextRequest) {
   const authError = verifyAdminAuth();
