@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Locale, locales, localeNames, localeFlags } from "@/i18n/config";
 
 interface Test {
@@ -15,21 +15,20 @@ interface BatchTranslationPanelProps {
   tests: Test[];
 }
 
-interface TranslationProgress {
+interface JobStatus {
   testId: string;
-  testTitle: string;
-  status: "pending" | "translating" | "completed" | "failed";
-  currentLocale?: Locale;
-  completedLocales: Locale[];
+  locale: string;
+  status: "pending" | "processing" | "done" | "error";
   error?: string;
 }
 
 export default function BatchTranslationPanel({ tests }: BatchTranslationPanelProps) {
   const [selectedTests, setSelectedTests] = useState<string[]>([]);
   const [selectedLocales, setSelectedLocales] = useState<Locale[]>([]);
-  const [translating, setTranslating] = useState(false);
-  const [progress, setProgress] = useState<TranslationProgress[]>([]);
+  const [queueing, setQueueing] = useState(false);
+  const [jobs, setJobs] = useState<JobStatus[]>([]);
   const [showPanel, setShowPanel] = useState(false);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const translatableLocales = locales.filter((l) => l !== "en") as Locale[];
 
@@ -54,7 +53,6 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
   };
 
   const selectMissingLocales = () => {
-    // Find locales that are missing from at least one selected test
     const missing = new Set<Locale>();
     selectedTests.forEach((testId) => {
       const test = tests.find((t) => t.id === testId);
@@ -69,36 +67,67 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
     setSelectedLocales(Array.from(missing));
   };
 
+  // Fetch job status for all selected tests
+  const fetchJobStatus = useCallback(async () => {
+    if (selectedTests.length === 0) return false;
+
+    try {
+      const allJobs: JobStatus[] = [];
+      
+      for (const testId of selectedTests) {
+        const res = await fetch(`/api/admin/translate-job?testId=${testId}`);
+        const data = await res.json();
+        if (data.jobs) {
+          allJobs.push(...data.jobs.map((j: any) => ({
+            testId,
+            locale: j.locale,
+            status: j.status,
+            error: j.error,
+          })));
+        }
+      }
+
+      setJobs(allJobs);
+
+      // Check if any jobs are still active
+      return allJobs.some((j) => j.status === "pending" || j.status === "processing");
+    } catch (e) {
+      console.error("Failed to fetch job status:", e);
+      return false;
+    }
+  }, [selectedTests]);
+
+  // Start polling
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return;
+
+    pollingRef.current = setInterval(async () => {
+      const hasActive = await fetchJobStatus();
+      if (!hasActive && pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    }, 3000);
+  }, [fetchJobStatus]);
+
+  // Stop polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
   const handleBatchTranslate = async () => {
     if (selectedTests.length === 0 || selectedLocales.length === 0) return;
 
-    setTranslating(true);
-    setProgress(
-      selectedTests.map((testId) => {
-        const test = tests.find((t) => t.id === testId);
-        return {
-          testId,
-          testTitle: test?.title || "Unknown",
-          status: "pending",
-          completedLocales: [],
-        };
-      })
-    );
+    setQueueing(true);
 
-    // Process each test sequentially
-    for (let i = 0; i < selectedTests.length; i++) {
-      const testId = selectedTests[i];
-      const test = tests.find((t) => t.id === testId);
-
-      setProgress((prev) =>
-        prev.map((p) =>
-          p.testId === testId ? { ...p, status: "translating" } : p
-        )
-      );
-
-      try {
-        // Translate quiz blueprint
-        const res = await fetch("/api/admin/translate-blueprint", {
+    try {
+      // Queue jobs for each test
+      for (const testId of selectedTests) {
+        await fetch("/api/admin/translate-job", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -106,62 +135,27 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
             targetLocales: selectedLocales,
           }),
         });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || "Translation failed");
-        }
-
-        // Update progress with completed locales
-        const completedLocales = data.results
-          ?.filter((r: any) => r.success)
-          .map((r: any) => r.locale) || [];
-
-        setProgress((prev) =>
-          prev.map((p) =>
-            p.testId === testId
-              ? { ...p, status: "completed", completedLocales }
-              : p
-          )
-        );
-
-        // If test has a version with reports, translate those too
-        if (test?.hasVersion && test.testVersionId) {
-          try {
-            await fetch("/api/admin/translate-report", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                testVersionId: test.testVersionId,
-                targetLocales: selectedLocales,
-              }),
-            });
-          } catch (e) {
-            console.error("Report translation failed:", e);
-            // Continue - report translation is optional
-          }
-        }
-      } catch (error: any) {
-        setProgress((prev) =>
-          prev.map((p) =>
-            p.testId === testId
-              ? { ...p, status: "failed", error: error.message }
-              : p
-          )
-        );
       }
-    }
 
-    setTranslating(false);
+      // Fetch initial status and start polling
+      await fetchJobStatus();
+      startPolling();
+    } catch (error: any) {
+      console.error("Failed to queue jobs:", error);
+    } finally {
+      setQueueing(false);
+    }
   };
 
-  const completedCount = progress.filter((p) => p.status === "completed").length;
-  const failedCount = progress.filter((p) => p.status === "failed").length;
-  const totalTranslations = progress.reduce(
-    (sum, p) => sum + p.completedLocales.length,
-    0
-  );
+  // Calculate stats
+  const pendingCount = jobs.filter((j) => j.status === "pending").length;
+  const processingCount = jobs.filter((j) => j.status === "processing").length;
+  const doneCount = jobs.filter((j) => j.status === "done").length;
+  const errorCount = jobs.filter((j) => j.status === "error").length;
+  const activeCount = pendingCount + processingCount;
+
+  // Get jobs for a specific test
+  const getTestJobs = (testId: string) => jobs.filter((j) => j.testId === testId);
 
   return (
     <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-2xl overflow-hidden">
@@ -195,6 +189,21 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
 
       {showPanel && (
         <div className="p-5 pt-0 space-y-6">
+          {/* Active jobs banner */}
+          {activeCount > 0 && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-xl">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <span className="font-medium">
+                  {activeCount} translation(s) in progress...
+                </span>
+              </div>
+              <p className="text-sm mt-1 text-blue-600">
+                {doneCount} done, {errorCount} failed. Updates every 3 seconds.
+              </p>
+            </div>
+          )}
+
           {/* Test Selection */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -207,25 +216,37 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {tests.map((test) => (
-                <button
-                  key={test.id}
-                  onClick={() => toggleTest(test.id)}
-                  disabled={translating}
-                  className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                    selectedTests.includes(test.id)
-                      ? "border-indigo-600 bg-indigo-50 text-indigo-700"
-                      : "border-gray-200 bg-white hover:border-gray-300"
-                  } disabled:opacity-50`}
-                >
-                  {test.title}
-                  {test.translatedLocales.length > 0 && (
-                    <span className="ml-2 text-xs text-green-600">
-                      ({test.translatedLocales.length})
-                    </span>
-                  )}
-                </button>
-              ))}
+              {tests.map((test) => {
+                const testJobs = getTestJobs(test.id);
+                const hasActiveJobs = testJobs.some(
+                  (j) => j.status === "pending" || j.status === "processing"
+                );
+
+                return (
+                  <button
+                    key={test.id}
+                    onClick={() => toggleTest(test.id)}
+                    disabled={queueing || hasActiveJobs}
+                    className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                      selectedTests.includes(test.id)
+                        ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                        : "border-gray-200 bg-white hover:border-gray-300"
+                    } disabled:opacity-50`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {hasActiveJobs && (
+                        <div className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                      )}
+                      <span>{test.title}</span>
+                      {test.translatedLocales.length > 0 && (
+                        <span className="text-xs text-green-600">
+                          ({test.translatedLocales.length})
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -247,7 +268,7 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
                 <button
                   key={locale}
                   onClick={() => toggleLocale(locale)}
-                  disabled={translating}
+                  disabled={queueing}
                   className={`px-4 py-2 rounded-lg border-2 flex items-center gap-2 transition-all ${
                     selectedLocales.includes(locale)
                       ? "border-indigo-600 bg-indigo-50"
@@ -261,55 +282,53 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
             </div>
           </div>
 
-          {/* Progress Display */}
-          {progress.length > 0 && (
+          {/* Job Status Display */}
+          {jobs.length > 0 && (
             <div className="bg-white rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-bold">Progress</h4>
-                {!translating && (
-                  <span className="text-sm text-muted-foreground">
-                    {completedCount} completed, {failedCount} failed,{" "}
-                    {totalTranslations} translations
-                  </span>
-                )}
+                <h4 className="font-bold">Job Status</h4>
+                <span className="text-sm text-muted-foreground">
+                  {doneCount} done, {pendingCount} queued, {processingCount} processing
+                </span>
               </div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
-                {progress.map((p) => (
-                  <div
-                    key={p.testId}
-                    className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg"
-                  >
-                    <div className="flex items-center gap-2">
-                      {p.status === "pending" && (
-                        <span className="w-2 h-2 bg-gray-300 rounded-full" />
-                      )}
-                      {p.status === "translating" && (
-                        <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                      )}
-                      {p.status === "completed" && (
-                        <span className="text-green-600">✓</span>
-                      )}
-                      {p.status === "failed" && (
-                        <span className="text-red-600">✗</span>
-                      )}
-                      <span className="text-sm font-medium">{p.testTitle}</span>
+                {selectedTests.map((testId) => {
+                  const test = tests.find((t) => t.id === testId);
+                  const testJobs = getTestJobs(testId);
+
+                  return (
+                    <div
+                      key={testId}
+                      className="py-2 px-3 bg-gray-50 rounded-lg"
+                    >
+                      <div className="font-medium text-sm mb-1">{test?.title}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {testJobs.map((job) => (
+                          <span
+                            key={job.locale}
+                            className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${
+                              job.status === "done"
+                                ? "bg-green-100 text-green-700"
+                                : job.status === "processing"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : job.status === "error"
+                                    ? "bg-red-100 text-red-700"
+                                    : "bg-amber-100 text-amber-700"
+                            }`}
+                            title={job.error}
+                          >
+                            {localeFlags[job.locale as Locale]}
+                            {job.status === "processing" && (
+                              <div className="w-2 h-2 border border-blue-600 border-t-transparent rounded-full animate-spin" />
+                            )}
+                            {job.status === "done" && "✓"}
+                            {job.status === "error" && "✗"}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {p.completedLocales.length > 0 && (
-                        <div className="flex gap-0.5">
-                          {p.completedLocales.map((l) => (
-                            <span key={l} className="text-sm">
-                              {localeFlags[l]}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {p.error && (
-                        <span className="text-xs text-red-600">{p.error}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -318,25 +337,21 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
           <div className="flex items-center justify-between pt-4 border-t">
             <div className="text-sm text-muted-foreground">
               {selectedTests.length} quizzes × {selectedLocales.length} languages
-              {selectedTests.length > 0 && selectedLocales.length > 0 && (
-                <span className="ml-2 text-indigo-600">
-                  ~${(selectedTests.length * selectedLocales.length * 0.01).toFixed(2)} estimated
-                </span>
-              )}
             </div>
             <button
               onClick={handleBatchTranslate}
               disabled={
-                translating ||
+                queueing ||
+                activeCount > 0 ||
                 selectedTests.length === 0 ||
                 selectedLocales.length === 0
               }
               className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors flex items-center gap-2"
             >
-              {translating && (
+              {queueing && (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               )}
-              {translating ? "Translating..." : "Start Batch Translation"}
+              {queueing ? "Queueing..." : "Queue Batch Translation"}
             </button>
           </div>
         </div>
@@ -344,4 +359,3 @@ export default function BatchTranslationPanel({ tests }: BatchTranslationPanelPr
     </div>
   );
 }
-
