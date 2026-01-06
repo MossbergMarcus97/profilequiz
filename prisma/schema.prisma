@@ -16,16 +16,17 @@ datasource db {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Test {
-  id            String        @id @default(cuid())
-  slug          String        @unique
-  title         String
-  description   String
-  blueprintJson String        // JSON stringified TestBlueprint (includes profiles array)
-  themeJson     String?       // Optional UI theme overrides
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  versions      TestVersion[]
-  attempts      Attempt[]     // Legacy: attempts may reference Test directly
+  id               String        @id @default(cuid())
+  slug             String        @unique
+  title            String
+  description      String
+  blueprintJson    String        // JSON stringified TestBlueprint (includes profiles array)
+  translationsJson String?       // JSON: { sv: TranslatedBlueprint, no: TranslatedBlueprint, ... }
+  themeJson        String?       // Optional UI theme overrides
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  versions         TestVersion[]
+  attempts         Attempt[]     // Legacy: attempts may reference Test directly
 }
 
 model TestVersion {
@@ -70,11 +71,12 @@ model ProfileReport {
   profileId   String
   profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
   variant     Int      @default(0) // 0 = primary, 1-2 = alternate phrasings
+  locale      String   @default("en") // Language code: en, sv, no, da, fi, is, de, es, fr
   contentHtml String   // Full pre-generated report HTML
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([profileId, variant])
+  @@unique([profileId, variant, locale])
   @@index([profileId])
 }
 

@@ -13,6 +13,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.4.1",
     "@radix-ui/react-progress": "^1.1.8",
     "@tailwindcss/typography": "^0.5.19",

@@ -1,6 +1,9 @@
 import prisma from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { TestBlueprintSchema } from "@/lib/schemas/blueprint";
+import { getTranslatedBlueprint, getTranslatedProfile } from "@/lib/translations";
+import { Locale, defaultLocale, locales } from "@/i18n/config";
 import PrintButton from "@/components/results/PrintButton";
 import { stripe } from "@/lib/stripe";
 
@@ -16,7 +19,7 @@ interface PageProps {
  * 1. Check if purchase is already marked as paid (webhook processed)
  * 2. If not paid but session_id is in URL, verify with Stripe directly
  * 3. If verified, mark purchase as paid immediately (don't wait for webhook)
- * 4. Render the pre-made profile report
+ * 4. Render the pre-made profile report in the user's locale
  */
 export default async function ReportPage({ params, searchParams }: PageProps) {
   const attempt = await prisma.attempt.findUnique({
@@ -25,10 +28,7 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
       test: true,
       profile: {
         include: {
-          reports: {
-            where: { variant: 0 }, // Primary report variant
-            take: 1,
-          },
+          reports: true, // Get all report variants/locales
         },
       },
       purchases: true,
@@ -72,12 +72,56 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
     redirect(`/r/${attempt.id}`);
   }
 
-  const blueprint = TestBlueprintSchema.parse(JSON.parse(attempt.test.blueprintJson));
+  // Get current locale from cookie
+  const cookieStore = cookies();
+  const localeCookie = cookieStore.get("profilequiz_locale")?.value as Locale | undefined;
+  const locale: Locale = localeCookie && locales.includes(localeCookie) 
+    ? localeCookie 
+    : defaultLocale;
+
+  // Parse and translate the blueprint
+  const baseBlueprint = JSON.parse(attempt.test.blueprintJson);
+  const translatedBlueprint = getTranslatedBlueprint(
+    baseBlueprint,
+    attempt.test.translationsJson,
+    locale
+  );
+  const blueprint = TestBlueprintSchema.parse(translatedBlueprint);
   const scores = JSON.parse(attempt.scoresJson || "{}");
   
-  // Get pre-made profile report
-  const profileReport = attempt.profile?.reports[0];
-  const profileName = attempt.profile?.name || attempt.resultLabel || "Your Profile";
+  // Get translated profile name
+  let profileName = attempt.profile?.name || attempt.resultLabel || "Your Profile";
+  if (attempt.profile) {
+    const translatedProfile = getTranslatedProfile(
+      {
+        name: attempt.profile.name,
+        oneLineHook: attempt.profile.oneLineHook,
+        teaserBullets: attempt.profile.teaserBullets,
+        shareTitle: attempt.profile.shareTitle,
+      },
+      attempt.test.translationsJson,
+      attempt.profile.slug,
+      locale
+    );
+    profileName = translatedProfile.name;
+  }
+  
+  // Try to get the report in the user's locale, fall back to English
+  let profileReport = attempt.profile?.reports?.find(
+    (r) => r.variant === 0 && r.locale === locale
+  );
+  
+  // Fallback to English if no translation exists
+  if (!profileReport) {
+    profileReport = attempt.profile?.reports?.find(
+      (r) => r.variant === 0 && r.locale === "en"
+    );
+  }
+  
+  // If still no report, fall back to primary variant (for legacy data)
+  if (!profileReport) {
+    profileReport = attempt.profile?.reports?.find((r) => r.variant === 0);
+  }
   
   // If no pre-made report exists yet, show a placeholder (admin needs to generate)
   const reportHtml = profileReport?.contentHtml || generatePlaceholderReport(
@@ -277,8 +321,8 @@ function generatePlaceholderReport(
       <main class="report-content">
         <h2>Your ${profileName} Profile</h2>
         <p>
-          As ${profileName.startsWith("The") ? "" : "a "}${profileName}, you bring a unique combination of traits 
-          that shape how you approach life, work, and relationships. Your profile reveals patterns in how you 
+          As ${profileName.startsWith("The") ? "" : "a "}${profileName}, your unique combination of traits creates 
+          a distinctive approach to life. Your profile reveals patterns in how you 
           think, feel, and act that are distinctly yours.
         </p>
         

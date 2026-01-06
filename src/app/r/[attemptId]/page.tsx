@@ -1,6 +1,9 @@
 import prisma from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { TestBlueprintSchema } from "@/lib/schemas/blueprint";
+import { getTranslatedBlueprint, getTranslatedProfile } from "@/lib/translations";
+import { Locale, defaultLocale, locales } from "@/i18n/config";
 import TraitCard from "@/components/results/TraitCard";
 import Paywall from "@/components/results/Paywall";
 import ShareButtons from "@/components/results/ShareButtons";
@@ -45,14 +48,44 @@ export default async function ResultsPage({ params }: { params: { attemptId: str
     redirect(`/report/${attempt.id}`);
   }
 
-  const blueprint = TestBlueprintSchema.parse(JSON.parse(attempt.test.blueprintJson));
+  // Get current locale from cookie
+  const cookieStore = cookies();
+  const localeCookie = cookieStore.get("profilequiz_locale")?.value as Locale | undefined;
+  const locale: Locale = localeCookie && locales.includes(localeCookie) 
+    ? localeCookie 
+    : defaultLocale;
+
+  // Parse and translate the blueprint
+  const baseBlueprint = JSON.parse(attempt.test.blueprintJson);
+  const translatedBlueprint = getTranslatedBlueprint(
+    baseBlueprint,
+    attempt.test.translationsJson,
+    locale
+  );
+  const blueprint = TestBlueprintSchema.parse(translatedBlueprint);
   const scores = JSON.parse(attempt.scoresJson);
 
-  // Get profile info (either from DB or blueprint)
-  const profileName = attempt.profile?.name || attempt.resultLabel || "Your Profile";
-  const profileHook = attempt.profile?.oneLineHook || 
-    `A unique blend of traits that defines your approach to life`;
-  const profileTeaserBullets = attempt.profile?.teaserBullets || [];
+  // Get translated profile info
+  let profileName = attempt.resultLabel || "Your Profile";
+  let profileHook = "A unique blend of traits that defines your approach to life";
+  let profileTeaserBullets: string[] = [];
+
+  if (attempt.profile) {
+    const translatedProfile = getTranslatedProfile(
+      {
+        name: attempt.profile.name,
+        oneLineHook: attempt.profile.oneLineHook,
+        teaserBullets: attempt.profile.teaserBullets,
+        shareTitle: attempt.profile.shareTitle,
+      },
+      attempt.test.translationsJson,
+      attempt.profile.slug, // Use slug as the profile ID
+      locale
+    );
+    profileName = translatedProfile.name;
+    profileHook = translatedProfile.oneLineHook;
+    profileTeaserBullets = translatedProfile.teaserBullets;
+  }
 
   // Combine profile teaser bullets with blueprint paywall bullets
   const paywallBullets = [

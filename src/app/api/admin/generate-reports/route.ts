@@ -93,14 +93,16 @@ export async function POST(req: NextRequest) {
         // Upsert the report (create or update)
         await prisma.profileReport.upsert({
           where: {
-            profileId_variant: {
+            profileId_variant_locale: {
               profileId: profile.id,
               variant: 0, // Primary variant
+              locale: "en", // English is the source language
             },
           },
           create: {
             profileId: profile.id,
             variant: 0,
+            locale: "en",
             contentHtml: reportHtml,
           },
           update: {
