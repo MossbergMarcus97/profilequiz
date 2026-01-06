@@ -107,8 +107,11 @@ export default function TranslationPanel({
           }),
         });
 
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({ error: "Translation failed" }));
+        const contentType = res.headers.get("content-type") || "";
+        
+        // If it's JSON (error response), handle it
+        if (contentType.includes("application/json")) {
+          const errorData = await res.json();
           throw new Error(errorData.error || `Translation to ${locale} failed`);
         }
 
