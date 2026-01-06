@@ -8,6 +8,9 @@ import TraitCard from "@/components/results/TraitCard";
 import Paywall from "@/components/results/Paywall";
 import ShareButtons from "@/components/results/ShareButtons";
 
+// Force dynamic rendering to ensure locale cookie is always read fresh
+export const dynamic = "force-dynamic";
+
 export default async function ResultsPage({ params }: { params: { attemptId: string } }) {
   const attempt = await prisma.attempt.findUnique({
     where: { id: params.attemptId },

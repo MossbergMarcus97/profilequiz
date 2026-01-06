@@ -6,6 +6,9 @@ import { TestBlueprintSchema } from "@/lib/schemas/blueprint";
 import { getTranslatedBlueprint } from "@/lib/translations";
 import { Locale, defaultLocale, locales } from "@/i18n/config";
 
+// Force dynamic rendering to ensure locale cookie is always read fresh
+export const dynamic = "force-dynamic";
+
 export default async function QuizPage({ params }: { params: { slug: string } }) {
   const test = await prisma.test.findUnique({
     where: { slug: params.slug },

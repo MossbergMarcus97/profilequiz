@@ -7,6 +7,9 @@ import { Locale, defaultLocale, locales } from "@/i18n/config";
 import PrintButton from "@/components/results/PrintButton";
 import { stripe } from "@/lib/stripe";
 
+// Force dynamic rendering to ensure locale cookie is always read fresh
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   params: { attemptId: string };
   searchParams: { session_id?: string };

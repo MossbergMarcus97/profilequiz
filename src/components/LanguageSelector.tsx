@@ -27,7 +27,8 @@ export default function LanguageSelector({ currentLocale }: LanguageSelectorProp
     // Set cookie with unique name to avoid conflicts with other localhost projects
     document.cookie = `profilequiz_locale=${locale};path=/;max-age=31536000`;
     setIsOpen(false);
-    router.refresh();
+    // Force full page reload to ensure server reads new cookie value
+    window.location.reload();
   };
 
   return (
