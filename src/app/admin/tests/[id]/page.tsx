@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { TestBlueprint, TestBlueprintSchema } from "@/lib/schemas/blueprint";
 import TranslationPanel from "@/components/admin/TranslationPanel";
+import ReportsPanel from "@/components/admin/ReportsPanel";
 
 interface TestData {
   id: string;
@@ -28,7 +29,7 @@ export default function EditTestPage() {
   const [saving, setSaving] = useState(false);
   const [blueprintJson, setBlueprintJson] = useState("");
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<"blueprint" | "translations" | "preview">("blueprint");
+  const [activeTab, setActiveTab] = useState<"blueprint" | "preview" | "reports" | "translations">("blueprint");
   const [previewQuestion, setPreviewQuestion] = useState(0);
   const router = useRouter();
 
@@ -151,6 +152,16 @@ export default function EditTestPage() {
           }`}
         >
           👁️ Preview
+        </button>
+        <button
+          onClick={() => setActiveTab("reports")}
+          className={`px-6 py-2.5 rounded-lg font-medium transition-colors ${
+            activeTab === "reports"
+              ? "bg-white shadow text-teal-700"
+              : "text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          📄 Reports
         </button>
         <button
           onClick={() => setActiveTab("translations")}
@@ -314,6 +325,16 @@ export default function EditTestPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Reports Tab */}
+      {activeTab === "reports" && test && (
+        <div className="space-y-6">
+          <ReportsPanel
+            testId={test.id}
+            testVersionId={latestVersion?.id}
+          />
         </div>
       )}
 
