@@ -2,10 +2,14 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Locale, localeNames } from "@/i18n/config";
 
 // Initialize Gemini client
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || "");
+const API_KEY = process.env.GOOGLE_AI_API_KEY;
+if (!API_KEY) {
+  console.error("GOOGLE_AI_API_KEY is not set!");
+}
+const genAI = new GoogleGenerativeAI(API_KEY || "");
 
-// Gemini 2.0 Flash - latest model optimized for speed and quality
-const MODEL = "gemini-2.0-flash";
+// Gemini 3 Flash - latest model optimized for speed and quality
+const MODEL = "gemini-3-flash";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types for Translation
@@ -306,6 +310,9 @@ Remember:
 - Don't translate the priceLabel
 - Make it feel native to ${targetLanguage} speakers`;
 
+  console.log(`[Gemini] Using model: ${MODEL}`);
+  console.log(`[Gemini] API Key present: ${!!API_KEY}`);
+  
   const model = genAI.getGenerativeModel({
     model: MODEL,
     generationConfig: {
@@ -315,26 +322,35 @@ Remember:
     },
   });
 
-  const result = await model.generateContent({
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: systemPrompt + "\n\n" + userPrompt }],
-      },
-    ],
-  });
+  try {
+    const result = await model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: systemPrompt + "\n\n" + userPrompt }],
+        },
+      ],
+    });
 
-  const response = result.response;
-  const text = response.text();
+    const response = result.response;
+    const text = response.text();
 
-  // Extract JSON from response
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("No valid JSON found in translation response");
+    console.log(`[Gemini] Response received, length: ${text.length}`);
+
+    // Extract JSON from response
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("[Gemini] No JSON found in response:", text.substring(0, 500));
+      throw new Error("No valid JSON found in translation response");
+    }
+
+    const translated = JSON.parse(jsonMatch[0]) as TranslatedBlueprint;
+    return translated;
+  } catch (error: any) {
+    console.error("[Gemini] API call failed:", error.message);
+    console.error("[Gemini] Full error:", JSON.stringify(error, null, 2));
+    throw error;
   }
-
-  const translated = JSON.parse(jsonMatch[0]) as TranslatedBlueprint;
-  return translated;
 }
 
 /**
