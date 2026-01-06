@@ -1,32 +1,36 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Locale, locales, localeNames, localeFlags } from "@/i18n/config";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface TranslationStatus {
   [locale: string]: boolean;
 }
 
+interface JobStatus {
+  id: string;
+  locale: string;
+  status: "pending" | "processing" | "done" | "error";
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface TranslationPanelProps {
   testId: string;
   testVersionId?: string;
-  blueprintJson?: string; // Pass the blueprint for client-side translation
   onTranslationComplete?: () => void;
 }
-
-// Initialize Gemini client-side (admin only feature)
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
 
 export default function TranslationPanel({
   testId,
   testVersionId,
-  blueprintJson,
   onTranslationComplete,
 }: TranslationPanelProps) {
   const [status, setStatus] = useState<TranslationStatus>({});
+  const [jobs, setJobs] = useState<JobStatus[]>([]);
   const [selectedLocales, setSelectedLocales] = useState<Locale[]>([]);
-  const [translating, setTranslating] = useState(false);
+  const [queueing, setQueueing] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<"quiz" | "reports">("quiz");
@@ -40,28 +44,40 @@ export default function TranslationPanel({
       missingLocales: string[];
     }>;
   } | null>(null);
-
+  
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const translatableLocales = locales.filter((l) => l !== "en") as Locale[];
 
-  // Fetch translation status
-  useEffect(() => {
-    fetchStatus();
-    if (testVersionId) {
-      fetchReportStatus();
-    }
-  }, [testId, testVersionId]);
-
-  const fetchStatus = async () => {
+  // Fetch translation status and jobs
+  const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/translate-blueprint?testId=${testId}`);
-      const data = await res.json();
-      if (data.translationStatus) {
-        setStatus(data.translationStatus);
+      // Fetch job status
+      const jobRes = await fetch(`/api/admin/translate-job?testId=${testId}`);
+      const jobData = await jobRes.json();
+      
+      if (jobData.jobs) {
+        setJobs(jobData.jobs);
       }
+      
+      if (jobData.existingTranslations) {
+        const statusMap: TranslationStatus = { en: true };
+        jobData.existingTranslations.forEach((locale: string) => {
+          statusMap[locale] = true;
+        });
+        setStatus(statusMap);
+      }
+
+      // Check if any jobs are still pending/processing
+      const activeJobs = jobData.jobs?.filter(
+        (j: JobStatus) => j.status === "pending" || j.status === "processing"
+      );
+      
+      return activeJobs?.length > 0;
     } catch (e) {
-      console.error("Failed to fetch translation status:", e);
+      console.error("Failed to fetch status:", e);
+      return false;
     }
-  };
+  }, [testId]);
 
   const fetchReportStatus = async () => {
     if (!testVersionId) return;
@@ -78,6 +94,46 @@ export default function TranslationPanel({
     }
   };
 
+  // Start polling when there are active jobs
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return; // Already polling
+    
+    pollingRef.current = setInterval(async () => {
+      const hasActiveJobs = await fetchStatus();
+      
+      if (!hasActiveJobs) {
+        // Stop polling when no more active jobs
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        setProgress("");
+        onTranslationComplete?.();
+      }
+    }, 3000); // Poll every 3 seconds
+  }, [fetchStatus, onTranslationComplete]);
+
+  // Stop polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchStatus().then((hasActive) => {
+      if (hasActive) {
+        startPolling();
+      }
+    });
+    if (testVersionId) {
+      fetchReportStatus();
+    }
+  }, [testId, testVersionId, fetchStatus, startPolling]);
+
   const toggleLocale = (locale: Locale) => {
     setSelectedLocales((prev) =>
       prev.includes(locale)
@@ -91,143 +147,73 @@ export default function TranslationPanel({
     setSelectedLocales(missing);
   };
 
-  // Client-side translation using Gemini directly
-  const translateBlueprintClientSide = async (
-    blueprint: any,
-    targetLocale: Locale
-  ) => {
-    if (!GEMINI_API_KEY) {
-      throw new Error("NEXT_PUBLIC_GEMINI_API_KEY not configured");
+  const handleQueueTranslations = async () => {
+    if (selectedLocales.length === 0) return;
+
+    setQueueing(true);
+    setError("");
+    setProgress(`Queueing ${selectedLocales.length} translation(s)...`);
+
+    try {
+      const res = await fetch("/api/admin/translate-job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          testId,
+          targetLocales: selectedLocales,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to queue translations");
+      }
+
+      setProgress(`✓ Queued ${data.jobs.length} job(s). Processing...`);
+      setSelectedLocales([]);
+      
+      // Start polling for updates
+      await fetchStatus();
+      startPolling();
+    } catch (e: any) {
+      setError(e.message);
+      setProgress("");
+    } finally {
+      setQueueing(false);
     }
-
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-3-flash-preview",
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 32768,
-      },
-    });
-
-    const targetLanguage = localeNames[targetLocale];
-
-    // Extract translatable content
-    const translatableContent = {
-      title: blueprint.title,
-      intro: blueprint.intro,
-      scales: blueprint.scales.map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        lowLabel: s.lowLabel,
-        highLabel: s.highLabel,
-      })),
-      questions: blueprint.questions.map((q: any) => ({
-        id: q.id,
-        text: q.text,
-        ...(q.leftLabel && { leftLabel: q.leftLabel }),
-        ...(q.rightLabel && { rightLabel: q.rightLabel }),
-        ...(q.optionA && { optionA: q.optionA }),
-        ...(q.optionB && { optionB: q.optionB }),
-        ...(q.options && { options: q.options }),
-      })),
-      profiles: blueprint.profiles?.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        oneLineHook: p.oneLineHook,
-        teaserBullets: p.teaserBullets,
-        shareTitle: p.shareTitle,
-      })),
-      paywall: blueprint.paywall,
-      resultLabeling: blueprint.resultLabeling,
-    };
-
-    const prompt = `You are an expert translator. Translate this quiz content from English to ${targetLanguage}.
-
-RULES:
-- Make it feel native to ${targetLanguage} speakers
-- Keep all IDs unchanged
-- Don't translate price labels (keep "$3" as "$3")
-- Return ONLY valid JSON, no markdown
-
-Content to translate:
-${JSON.stringify(translatableContent, null, 2)}`;
-
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-
-    // Extract JSON
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No valid JSON in response");
-    }
-
-    return JSON.parse(jsonMatch[0]);
   };
 
-  const handleTranslateQuiz = async () => {
-    if (selectedLocales.length === 0) return;
-    if (!blueprintJson) {
-      setError("Blueprint not available");
-      return;
+  const handleDeleteTranslation = async (locale: Locale) => {
+    if (!confirm(`Delete ${localeNames[locale]} translation?`)) return;
+
+    try {
+      const res = await fetch("/api/admin/translate-blueprint", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ testId, locale }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      // Also cancel any pending job
+      await fetch("/api/admin/translate-job", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ testId, locale }),
+      });
+
+      fetchStatus();
+    } catch (e: any) {
+      setError(e.message);
     }
-
-    setTranslating(true);
-    setError("");
-
-    const blueprint = JSON.parse(blueprintJson);
-    const localesToProcess = [...selectedLocales];
-    let completed = 0;
-
-    for (const locale of localesToProcess) {
-      setProgress(
-        `Translating to ${localeNames[locale]} (${completed + 1}/${localesToProcess.length})...`
-      );
-
-      try {
-        // Translate client-side
-        const translated = await translateBlueprintClientSide(blueprint, locale);
-
-        // Save to server
-        const res = await fetch("/api/admin/translate-blueprint", {
-          method: "PUT", // Use PUT to save translation
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            testId,
-            locale,
-            translation: translated,
-          }),
-        });
-
-        const contentType = res.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.error || "Failed to save translation");
-          }
-        }
-
-        completed++;
-        fetchStatus();
-      } catch (e: any) {
-        setError(`${localeNames[locale]}: ${e.message}`);
-        setTranslating(false);
-        setProgress("");
-        return;
-      }
-    }
-
-    setProgress(`✓ Translated to ${completed} language(s)`);
-    setSelectedLocales([]);
-    onTranslationComplete?.();
-    setTranslating(false);
-
-    setTimeout(() => setProgress(""), 3000);
   };
 
   const handleTranslateReports = async () => {
     if (!testVersionId || selectedLocales.length === 0) return;
 
-    setTranslating(true);
+    setQueueing(true);
     setError("");
     setProgress(
       `Translating reports to ${selectedLocales.length} language(s)...`
@@ -259,28 +245,19 @@ ${JSON.stringify(translatableContent, null, 2)}`;
       setError(e.message);
       setProgress("");
     } finally {
-      setTranslating(false);
+      setQueueing(false);
     }
   };
 
-  const handleDeleteTranslation = async (locale: Locale) => {
-    if (!confirm(`Delete ${localeNames[locale]} translation?`)) return;
-
-    try {
-      const res = await fetch("/api/admin/translate-blueprint", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ testId, locale }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      fetchStatus();
-    } catch (e: any) {
-      setError(e.message);
-    }
+  // Get job status for a locale
+  const getJobForLocale = (locale: string) => {
+    return jobs.find((j) => j.locale === locale);
   };
+
+  // Count active jobs
+  const activeJobCount = jobs.filter(
+    (j) => j.status === "pending" || j.status === "processing"
+  ).length;
 
   return (
     <div className="bg-white border-2 border-gray-200 rounded-2xl p-6 space-y-6">
@@ -322,7 +299,7 @@ ${JSON.stringify(translatableContent, null, 2)}`;
 
       {progress && (
         <div className="bg-teal-50 border border-teal-200 text-teal-700 px-4 py-3 rounded-xl flex items-center gap-2">
-          {translating && (
+          {activeJobCount > 0 && (
             <div className="w-4 h-4 border-2 border-teal-700 border-t-transparent rounded-full animate-spin" />
           )}
           {progress}
@@ -331,9 +308,18 @@ ${JSON.stringify(translatableContent, null, 2)}`;
 
       {activeTab === "quiz" && (
         <>
-          {!GEMINI_API_KEY && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl">
-              <strong>Setup Required:</strong> Add NEXT_PUBLIC_GEMINI_API_KEY to your environment variables to enable translations.
+          {/* Active jobs banner */}
+          {activeJobCount > 0 && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-xl">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <span className="font-medium">
+                  {activeJobCount} translation(s) in progress...
+                </span>
+              </div>
+              <p className="text-sm mt-1 text-blue-600">
+                Jobs are processed automatically. This page updates every 3 seconds.
+              </p>
             </div>
           )}
 
@@ -354,23 +340,39 @@ ${JSON.stringify(translatableContent, null, 2)}`;
             {translatableLocales.map((locale) => {
               const isTranslated = status[locale];
               const isSelected = selectedLocales.includes(locale);
+              const job = getJobForLocale(locale);
+              const isPending = job?.status === "pending";
+              const isProcessing = job?.status === "processing";
+              const hasError = job?.status === "error";
 
               return (
                 <button
                   key={locale}
                   onClick={() => toggleLocale(locale)}
-                  disabled={translating}
-                  className={`p-3 rounded-xl border-2 transition-all text-left ${
+                  disabled={queueing || isPending || isProcessing}
+                  className={`p-3 rounded-xl border-2 transition-all text-left relative ${
                     isSelected
                       ? "border-teal-700 bg-teal-50 ring-2 ring-teal-200"
-                      : isTranslated
-                        ? "border-green-200 bg-green-50 hover:border-green-300"
-                        : "border-gray-200 bg-gray-50 hover:border-gray-300"
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      : isProcessing
+                        ? "border-blue-300 bg-blue-50"
+                        : isPending
+                          ? "border-amber-300 bg-amber-50"
+                          : hasError
+                            ? "border-red-300 bg-red-50"
+                            : isTranslated
+                              ? "border-green-200 bg-green-50 hover:border-green-300"
+                              : "border-gray-200 bg-gray-50 hover:border-gray-300"
+                  } disabled:cursor-not-allowed`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xl">{localeFlags[locale]}</span>
-                    {isTranslated ? (
+                    {isProcessing ? (
+                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    ) : isPending ? (
+                      <span className="text-amber-600 text-xs">⏳</span>
+                    ) : hasError ? (
+                      <span className="text-red-600" title={job?.error}>✗</span>
+                    ) : isTranslated ? (
                       <span className="text-green-600">✓</span>
                     ) : (
                       <span className="text-gray-400">○</span>
@@ -379,6 +381,17 @@ ${JSON.stringify(translatableContent, null, 2)}`;
                   <div className="text-sm font-medium mt-1">
                     {localeNames[locale]}
                   </div>
+                  {isProcessing && (
+                    <div className="text-xs text-blue-600 mt-1">Translating...</div>
+                  )}
+                  {isPending && (
+                    <div className="text-xs text-amber-600 mt-1">Queued</div>
+                  )}
+                  {hasError && (
+                    <div className="text-xs text-red-600 mt-1 truncate" title={job?.error}>
+                      Failed
+                    </div>
+                  )}
                 </button>
               );
             })}
@@ -388,21 +401,21 @@ ${JSON.stringify(translatableContent, null, 2)}`;
           <div className="flex flex-wrap items-center gap-3 pt-4 border-t">
             <button
               onClick={selectAllMissing}
-              disabled={translating}
+              disabled={queueing || activeJobCount > 0}
               className="text-sm text-teal-700 font-medium hover:underline disabled:opacity-50"
             >
               Select all missing
             </button>
 
             <button
-              onClick={handleTranslateQuiz}
-              disabled={translating || selectedLocales.length === 0 || !GEMINI_API_KEY}
+              onClick={handleQueueTranslations}
+              disabled={queueing || selectedLocales.length === 0}
               className="ml-auto bg-teal-700 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-teal-800 transition-colors flex items-center gap-2"
             >
-              {translating && (
+              {queueing && (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               )}
-              Translate Quiz ({selectedLocales.length})
+              Queue Translations ({selectedLocales.length})
             </button>
           </div>
 
@@ -488,7 +501,7 @@ ${JSON.stringify(translatableContent, null, 2)}`;
                     <button
                       key={locale}
                       onClick={() => toggleLocale(locale)}
-                      disabled={translating}
+                      disabled={queueing}
                       className={`p-2 rounded-lg border-2 transition-all ${
                         isSelected
                           ? "border-teal-700 bg-teal-50"
@@ -504,10 +517,10 @@ ${JSON.stringify(translatableContent, null, 2)}`;
               <div className="flex justify-end pt-4">
                 <button
                   onClick={handleTranslateReports}
-                  disabled={translating || selectedLocales.length === 0}
+                  disabled={queueing || selectedLocales.length === 0}
                   className="bg-teal-700 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-teal-800 transition-colors flex items-center gap-2"
                 >
-                  {translating && (
+                  {queueing && (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   )}
                   Translate All Reports ({selectedLocales.length} languages)

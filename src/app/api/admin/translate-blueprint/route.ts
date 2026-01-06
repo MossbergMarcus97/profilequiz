@@ -1,125 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { verifyAdminAuth } from "@/lib/admin-auth";
-import { translateBlueprint, TranslatedBlueprint } from "@/lib/gemini";
+import { TranslatedBlueprint } from "@/lib/gemini";
 import { Locale, locales } from "@/i18n/config";
-
-export const maxDuration = 60;
 
 interface TranslationsMap {
   [locale: string]: TranslatedBlueprint;
 }
 
-export async function POST(req: NextRequest) {
-  // Verify admin auth
-  const authError = verifyAdminAuth();
-  if (authError) return authError;
-
-  try {
-    const body = await req.json();
-    const { testId, targetLocales, tone } = body as {
-      testId: string;
-      targetLocales: Locale[];
-      tone?: string;
-    };
-
-    if (!testId) {
-      return NextResponse.json({ error: "testId is required" }, { status: 400 });
-    }
-
-    if (!targetLocales || targetLocales.length === 0) {
-      return NextResponse.json(
-        { error: "At least one targetLocale is required" },
-        { status: 400 }
-      );
-    }
-
-    // Validate locales
-    const invalidLocales = targetLocales.filter((l) => !locales.includes(l));
-    if (invalidLocales.length > 0) {
-      return NextResponse.json(
-        { error: `Invalid locales: ${invalidLocales.join(", ")}` },
-        { status: 400 }
-      );
-    }
-
-    // Filter out English (source language)
-    const localesToTranslate = targetLocales.filter((l) => l !== "en");
-    if (localesToTranslate.length === 0) {
-      return NextResponse.json(
-        { error: "Cannot translate to English (source language)" },
-        { status: 400 }
-      );
-    }
-
-    // Only translate ONE locale per request
-    const locale = localesToTranslate[0];
-
-    // Fetch the test
-    const test = await prisma.test.findUnique({
-      where: { id: testId },
-    });
-
-    if (!test) {
-      return NextResponse.json({ error: "Test not found" }, { status: 404 });
-    }
-
-    const blueprint = JSON.parse(test.blueprintJson);
-    const existingTranslations: TranslationsMap = test.translationsJson
-      ? JSON.parse(test.translationsJson)
-      : {};
-
-    // Use streaming to avoid timeout
-    const encoder = new TextEncoder();
-    const stream = new TransformStream();
-    const writer = stream.writable.getWriter();
-
-    // Start the translation in the background
-    (async () => {
-      try {
-        // Send initial message
-        await writer.write(encoder.encode(`data: {"status":"translating","locale":"${locale}"}\n\n`));
-
-        // Do the translation
-        const translated = await translateBlueprint(blueprint, locale, { tone });
-        existingTranslations[locale] = translated;
-
-        // Save to database
-        await prisma.test.update({
-          where: { id: testId },
-          data: {
-            translationsJson: JSON.stringify(existingTranslations),
-            updatedAt: new Date(),
-          },
-        });
-
-        // Send success
-        await writer.write(encoder.encode(`data: {"status":"done","success":true,"locale":"${locale}","translatedLocales":${JSON.stringify(Object.keys(existingTranslations))}}\n\n`));
-      } catch (error: any) {
-        console.error(`Translation to ${locale} failed:`, error);
-        await writer.write(encoder.encode(`data: {"status":"error","error":"${error.message.replace(/"/g, '\\"')}"}\n\n`));
-      } finally {
-        await writer.close();
-      }
-    })();
-
-    return new Response(stream.readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      },
-    });
-  } catch (error: any) {
-    console.error("Translation error:", error);
-    return NextResponse.json(
-      { error: error.message || "Translation failed" },
-      { status: 500 }
-    );
-  }
-}
-
-// GET endpoint to check translation status for a test
+/**
+ * GET: Check translation status for a test
+ */
 export async function GET(req: NextRequest) {
   const authError = verifyAdminAuth();
   if (authError) return authError;
@@ -169,7 +60,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// PUT endpoint to save a client-side translation
+/**
+ * PUT: Save a translation (used by cron job or for manual imports)
+ */
 export async function PUT(req: NextRequest) {
   const authError = verifyAdminAuth();
   if (authError) return authError;
@@ -179,7 +72,7 @@ export async function PUT(req: NextRequest) {
     const { testId, locale, translation } = body as {
       testId: string;
       locale: Locale;
-      translation: any;
+      translation: TranslatedBlueprint;
     };
 
     if (!testId || !locale || !translation) {
@@ -226,7 +119,9 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE endpoint to remove a translation
+/**
+ * DELETE: Remove a translation
+ */
 export async function DELETE(req: NextRequest) {
   const authError = verifyAdminAuth();
   if (authError) return authError;

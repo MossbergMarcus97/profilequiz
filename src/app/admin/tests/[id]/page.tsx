@@ -350,7 +350,6 @@ export default function EditTestPage() {
           <TranslationPanel
             testId={test.id}
             testVersionId={latestVersion?.id}
-            blueprintJson={test.blueprintJson}
             onTranslationComplete={() => {
               // Refetch test data to update translation status
             }}
