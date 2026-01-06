@@ -316,7 +316,7 @@ Remember:
   const model = genAI.getGenerativeModel({
     model: MODEL,
     generationConfig: {
-      temperature: 0.3, // Lower temperature for more consistent translations
+      temperature: 0.3,
       topP: 0.8,
       maxOutputTokens: 32768,
     },

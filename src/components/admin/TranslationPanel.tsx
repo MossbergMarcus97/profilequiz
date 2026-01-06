@@ -103,24 +103,59 @@ export default function TranslationPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             testId,
-            targetLocales: [locale], // One at a time
+            targetLocales: [locale],
           }),
         });
 
-        const data = await res.json();
-
         if (!res.ok) {
-          throw new Error(data.error || `Translation to ${locale} failed`);
+          const errorData = await res.json().catch(() => ({ error: "Translation failed" }));
+          throw new Error(errorData.error || `Translation to ${locale} failed`);
+        }
+
+        // Handle streaming response (SSE)
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No response body");
+        
+        const decoder = new TextDecoder();
+        let done = false;
+        let success = false;
+        
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          done = readerDone;
+          
+          if (value) {
+            const text = decoder.decode(value);
+            const lines = text.split("\n");
+            
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.status === "done" && data.success) {
+                    success = true;
+                  } else if (data.status === "error") {
+                    throw new Error(data.error);
+                  }
+                } catch (parseError) {
+                  // Ignore parse errors for incomplete chunks
+                }
+              }
+            }
+          }
+        }
+        
+        if (!success) {
+          throw new Error(`Translation to ${locale} did not complete`);
         }
 
         completed++;
-        // Update status after each successful translation
         fetchStatus();
       } catch (e: any) {
         setError(`${localeNames[locale]}: ${e.message}`);
         setTranslating(false);
         setProgress("");
-        return; // Stop on first error
+        return;
       }
     }
 
@@ -129,7 +164,6 @@ export default function TranslationPanel({
     onTranslationComplete?.();
     setTranslating(false);
 
-    // Clear progress after a delay
     setTimeout(() => setProgress(""), 3000);
   };
 

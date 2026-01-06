@@ -4,7 +4,7 @@ import { verifyAdminAuth } from "@/lib/admin-auth";
 import { translateBlueprint, TranslatedBlueprint } from "@/lib/gemini";
 import { Locale, locales } from "@/i18n/config";
 
-export const maxDuration = 60; // Vercel Pro allows up to 60s
+export const maxDuration = 60;
 
 interface TranslationsMap {
   [locale: string]: TranslatedBlueprint;
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Only translate ONE locale per request to avoid timeout
+    // Only translate ONE locale per request
     const locale = localesToTranslate[0];
 
     // Fetch the test
@@ -69,34 +69,47 @@ export async function POST(req: NextRequest) {
       ? JSON.parse(test.translationsJson)
       : {};
 
-    // Translate to the single locale
-    try {
-      console.log(`Translating blueprint to ${locale}...`);
-      const translated = await translateBlueprint(blueprint, locale, { tone });
-      existingTranslations[locale] = translated;
+    // Use streaming to avoid timeout
+    const encoder = new TextEncoder();
+    const stream = new TransformStream();
+    const writer = stream.writable.getWriter();
 
-      // Update the test with new translation
-      await prisma.test.update({
-        where: { id: testId },
-        data: {
-          translationsJson: JSON.stringify(existingTranslations),
-          updatedAt: new Date(),
-        },
-      });
+    // Start the translation in the background
+    (async () => {
+      try {
+        // Send initial message
+        await writer.write(encoder.encode(`data: {"status":"translating","locale":"${locale}"}\n\n`));
 
-      return NextResponse.json({
-        success: true,
-        message: `Translated to ${locale}`,
-        translatedLocales: Object.keys(existingTranslations),
-        remainingLocales: localesToTranslate.slice(1),
-      });
-    } catch (error: any) {
-      console.error(`Translation to ${locale} failed:`, error);
-      return NextResponse.json(
-        { error: `Translation to ${locale} failed: ${error.message}` },
-        { status: 500 }
-      );
-    }
+        // Do the translation
+        const translated = await translateBlueprint(blueprint, locale, { tone });
+        existingTranslations[locale] = translated;
+
+        // Save to database
+        await prisma.test.update({
+          where: { id: testId },
+          data: {
+            translationsJson: JSON.stringify(existingTranslations),
+            updatedAt: new Date(),
+          },
+        });
+
+        // Send success
+        await writer.write(encoder.encode(`data: {"status":"done","success":true,"locale":"${locale}","translatedLocales":${JSON.stringify(Object.keys(existingTranslations))}}\n\n`));
+      } catch (error: any) {
+        console.error(`Translation to ${locale} failed:`, error);
+        await writer.write(encoder.encode(`data: {"status":"error","error":"${error.message.replace(/"/g, '\\"')}"}\n\n`));
+      } finally {
+        await writer.close();
+      }
+    })();
+
+    return new Response(stream.readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
+    });
   } catch (error: any) {
     console.error("Translation error:", error);
     return NextResponse.json(
@@ -225,4 +238,3 @@ export async function DELETE(req: NextRequest) {
     );
   }
 }
-
